@@ -1,0 +1,6 @@
+{
+  "name": "OfflineGPT - Your AI. Your Device. Your Freedom.",
+  "description": "Private, multilingual offline AI assistant running locally on your device with Ollama, PDF document understanding, voice assistant, learning hub, and knowledge base.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
