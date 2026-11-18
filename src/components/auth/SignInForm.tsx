@@ -137,7 +137,8 @@ export const SignInForm: React.FC<SignInFormProps> = ({
             type={showPassword ? 'text' : 'password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
+            placeholder="Password (Min. 6 characters)"
+            minLength={6}
             required
             className="w-full min-h-[44px] bg-[#14172F] border border-[#262C54] focus:border-[#7438F5] focus:ring-2 focus:ring-[#7438F5]/20 text-sm sm:text-xs text-white placeholder-gray-400 rounded-xl pl-10 pr-11 py-2.5 outline-none transition-all"
           />

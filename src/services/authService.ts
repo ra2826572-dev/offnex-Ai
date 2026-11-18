@@ -4,6 +4,7 @@ import { getSupabaseBrowserClient } from '../lib/supabase/client';
 const STORAGE_USERS_KEY = 'offlinegpt_users_store';
 const SESSION_KEY = 'offlinegpt_active_session';
 const REMEMBER_ME_KEY = 'offlinegpt_remember_me';
+const SESSION_COOKIE_KEY = 'offnex_active_user';
 
 const DEFAULT_PASSWORD_HASH = 'b31a1d098825045aefb03dea941499ff98c4648566ac72b07dd3471c9de80732'; // password123
 
@@ -38,23 +39,74 @@ export class LocalAuthService {
     this.initSync();
   }
 
-  // Synchronous initialization ensures seed users are available immediately on first tick
+  private persistSession(user: UserProfile): void {
+    this.currentUser = user;
+    if (typeof window === 'undefined') return;
+    const serialized = JSON.stringify(user);
+    try {
+      localStorage.setItem(SESSION_KEY, serialized);
+      localStorage.setItem(REMEMBER_ME_KEY, 'true');
+    } catch {
+      // Ignore storage quota errors
+    }
+    try {
+      sessionStorage.setItem(SESSION_KEY, serialized);
+    } catch {
+      // Ignore sessionStorage errors
+    }
+    try {
+      const isHttps = window.location.protocol === 'https:';
+      const sameSite = isHttps ? 'SameSite=None; Secure' : 'SameSite=Lax';
+      document.cookie = `${SESSION_COOKIE_KEY}=${encodeURIComponent(
+        serialized
+      )}; Path=/; Max-Age=31536000; ${sameSite}`;
+    } catch {
+      // Ignore cookie write errors
+    }
+  }
+
+  private readPersistedSession(): UserProfile | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw =
+        localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+      if (raw) {
+        return JSON.parse(raw) as UserProfile;
+      }
+    } catch {
+      // Ignore malformed storage
+    }
+    try {
+      const prefix = `${SESSION_COOKIE_KEY}=`;
+      const match = document.cookie
+        .split('; ')
+        .find((row) => row.startsWith(prefix));
+      if (match) {
+        const parsed = JSON.parse(decodeURIComponent(match.slice(prefix.length))) as UserProfile;
+        if (parsed && parsed.email) {
+          try {
+            localStorage.setItem(SESSION_KEY, JSON.stringify(parsed));
+            localStorage.setItem(REMEMBER_ME_KEY, 'true');
+          } catch {
+            // Ignore
+          }
+          return parsed;
+        }
+      }
+    } catch {
+      // Ignore malformed cookie
+    }
+    return null;
+  }
+
+  // Synchronous initialization ensures existing session & seed users are available immediately on first tick
   public initSync(): void {
     if (typeof window === 'undefined') return;
     this.ensureSeedUsers();
 
-    // Check existing session
-    const remembered = localStorage.getItem(REMEMBER_ME_KEY) === 'true';
-    const rawSession = remembered 
-      ? localStorage.getItem(SESSION_KEY)
-      : (sessionStorage.getItem(SESSION_KEY) || localStorage.getItem(SESSION_KEY));
-
-    if (rawSession) {
-      try {
-        this.currentUser = JSON.parse(rawSession);
-      } catch {
-        this.currentUser = null;
-      }
+    const persisted = this.readPersistedSession();
+    if (persisted) {
+      this.currentUser = persisted;
     }
     this.isInitialized = true;
   }
@@ -87,11 +139,10 @@ export class LocalAuthService {
           lastLoginAt: profile?.last_login_at || new Date().toISOString(),
         };
 
-        this.currentUser = syncedUser;
-        localStorage.setItem(SESSION_KEY, JSON.stringify(syncedUser));
+        this.persistSession(syncedUser);
       }
     } catch {
-      // Keep local offline session intact if Supabase is unreachable
+      // Keep local/cookie session intact until user explicitly signs out
     }
   }
 
@@ -162,16 +213,10 @@ export class LocalAuthService {
 
   public getCurrentUser(): UserProfile | null {
     if (this.currentUser) return this.currentUser;
-    if (typeof window !== 'undefined') {
-      const rawSession = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
-      if (rawSession) {
-        try {
-          this.currentUser = JSON.parse(rawSession);
-          return this.currentUser;
-        } catch {
-          return null;
-        }
-      }
+    const persisted = this.readPersistedSession();
+    if (persisted) {
+      this.currentUser = persisted;
+      return persisted;
     }
     return null;
   }
@@ -221,8 +266,15 @@ export class LocalAuthService {
               ? words[1].charAt(0).toUpperCase() + words[1].slice(1)
               : '';
 
+            if (password.length < 6) {
+              return {
+                success: false,
+                error: 'Password must be at least 6 characters.',
+              };
+            }
+
             // Auto-register any new email into Supabase on Sign In so any email works seamlessly
-            if (msg.includes('invalid login credentials') && password.length >= 6) {
+            if (msg.includes('invalid login credentials')) {
               const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
                 email: cleanEmail,
                 password,
@@ -235,8 +287,22 @@ export class LocalAuthService {
                 },
               });
 
-              if (signUpError && signUpError.message.toLowerCase().includes('invalid format')) {
-                return { success: false, error: 'Please enter a valid email address.' };
+              if (signUpError) {
+                const errLower = signUpError.message.toLowerCase();
+                if (errLower.includes('rate limit') || errLower.includes('over_email_send_rate_limit')) {
+                  return {
+                    success: false,
+                    error:
+                      'Supabase email rate limit reached. Open Supabase Dashboard -> Authentication -> Sign In / Providers -> Email -> turn OFF "Confirm email" and Save, then try again.',
+                  };
+                }
+                if (errLower.includes('already registered') || errLower.includes('already exists')) {
+                  return {
+                    success: false,
+                    error: 'Incorrect password for this existing Supabase account.',
+                  };
+                }
+                return { success: false, error: signUpError.message };
               }
 
               if (
@@ -269,7 +335,28 @@ export class LocalAuthService {
                       () => undefined,
                       () => undefined
                     );
+
+                  await supabase.rpc('record_user_sign_in').then(
+                    () => undefined,
+                    () => undefined
+                  );
                 }
+
+                const hash = await this.hashPassword(password);
+                const localUsers = this.getStoredUsers().filter(
+                  (u) => u.email.toLowerCase() !== cleanEmail
+                );
+                localUsers.push({
+                  id: signUpData.user.id,
+                  firstName: fName,
+                  lastName: lName,
+                  email: cleanEmail,
+                  role: 'user',
+                  passwordHash: hash,
+                  createdAt: signUpData.user.created_at || new Date().toISOString(),
+                  lastLoginAt: new Date().toISOString(),
+                });
+                this.saveStoredUsers(localUsers);
 
                 const autoUser: UserProfile = {
                   id: signUpData.user.id,
@@ -281,19 +368,20 @@ export class LocalAuthService {
                   lastLoginAt: new Date().toISOString(),
                 };
 
-                this.currentUser = autoUser;
-                if (rememberMe) {
-                  localStorage.setItem(SESSION_KEY, JSON.stringify(autoUser));
-                  localStorage.setItem(REMEMBER_ME_KEY, 'true');
-                } else {
-                  sessionStorage.setItem(SESSION_KEY, JSON.stringify(autoUser));
-                  localStorage.removeItem(REMEMBER_ME_KEY);
-                }
+                this.persistSession(autoUser);
                 return { success: true, user: autoUser };
               }
             }
 
-            // If email exists in Supabase awaiting confirmation, or password < 6 chars, continue via local session fallback below
+            if (msg.includes('email not confirmed')) {
+              return {
+                success: false,
+                error:
+                  'Email not confirmed in Supabase. Open Supabase Dashboard -> Authentication -> Sign In / Providers -> Email -> turn OFF "Confirm email" and Save, then sign in again.',
+              };
+            }
+
+            return { success: false, error: error.message };
           }
 
           if (data?.user) {
@@ -346,14 +434,7 @@ export class LocalAuthService {
               lastLoginAt: new Date().toISOString(),
             };
 
-            this.currentUser = safeUser;
-            if (rememberMe) {
-              localStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
-              localStorage.setItem(REMEMBER_ME_KEY, 'true');
-            } else {
-              sessionStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
-              localStorage.removeItem(REMEMBER_ME_KEY);
-            }
+            this.persistSession(safeUser);
             return { success: true, user: safeUser };
           }
         } catch {
@@ -410,15 +491,9 @@ export class LocalAuthService {
       lastLoginAt: matchedUser.lastLoginAt,
     };
 
-    this.currentUser = safeUser;
-
-    if (rememberMe) {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
-      localStorage.setItem(REMEMBER_ME_KEY, 'true');
-    } else {
-      sessionStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
-      localStorage.removeItem(REMEMBER_ME_KEY);
-    }
+    // Always keep user signed in across link re-opens until explicit Sign Out
+    void rememberMe;
+    this.persistSession(safeUser);
 
     return { success: true, user: safeUser };
   }
@@ -479,6 +554,14 @@ export class LocalAuthService {
           });
 
           if (signUpError) {
+            const errLower = signUpError.message.toLowerCase();
+            if (errLower.includes('rate limit') || errLower.includes('over_email_send_rate_limit')) {
+              return {
+                success: false,
+                error:
+                  'Supabase email rate limit reached. Open Supabase Dashboard -> Authentication -> Sign In / Providers -> Email -> turn OFF "Confirm email" and Save, then try again.',
+              };
+            }
             return { success: false, error: signUpError.message };
           }
 
@@ -513,14 +596,11 @@ export class LocalAuthService {
                   () => undefined,
                   () => undefined
                 );
-            } else {
-              // Supabase created the user & trigger saved public.profiles, awaiting email confirmation
-              return {
-                success: true,
-                needsEmailConfirmation: true,
-                message:
-                  'Account saved in Supabase! Please confirm the verification link sent to your email (or disable "Confirm email" in Supabase Authentication settings), then Sign In.',
-              };
+
+              await supabase.rpc('record_user_sign_in').then(
+                () => undefined,
+                () => undefined
+              );
             }
           }
         } catch {
@@ -562,9 +642,7 @@ export class LocalAuthService {
       lastLoginAt: newUser.lastLoginAt,
     };
 
-    this.currentUser = safeUser;
-    localStorage.setItem(SESSION_KEY, JSON.stringify(safeUser));
-    localStorage.setItem(REMEMBER_ME_KEY, 'true');
+    this.persistSession(safeUser);
 
     return { success: true, user: safeUser };
   }
@@ -572,9 +650,20 @@ export class LocalAuthService {
   public logout(): void {
     this.currentUser = null;
     if (typeof window !== 'undefined') {
-      localStorage.removeItem(SESSION_KEY);
-      sessionStorage.removeItem(SESSION_KEY);
-      localStorage.removeItem(REMEMBER_ME_KEY);
+      try {
+        localStorage.removeItem(SESSION_KEY);
+        sessionStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(REMEMBER_ME_KEY);
+      } catch {
+        // Ignore
+      }
+      try {
+        const isHttps = window.location.protocol === 'https:';
+        const sameSite = isHttps ? 'SameSite=None; Secure' : 'SameSite=Lax';
+        document.cookie = `${SESSION_COOKIE_KEY}=; Path=/; Max-Age=0; ${sameSite}`;
+      } catch {
+        // Ignore
+      }
       const supabase = getSupabaseBrowserClient();
       if (supabase) {
         supabase.auth.signOut().catch(() => undefined);

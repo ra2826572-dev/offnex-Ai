@@ -372,7 +372,7 @@ Key Highlights:
   public async getSettings(): Promise<AppSettings> {
     const defaultSettings: AppSettings = {
       language: 'ur',
-      theme: 'light',
+      theme: 'dark',
       defaultModel: 'gemma:2b',
       ollamaHost: 'http://localhost:11434',
       temperature: 0.7,

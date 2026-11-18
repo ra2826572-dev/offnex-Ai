@@ -47,8 +47,8 @@ export function OfflineGptWorkspace() {
   const [folders, setFolders] = useState<KnowledgeFolder[]>([]);
   const [settings, setSettings] = useState<AppSettings>({
     language: 'ur',
-    theme: 'light',
-    defaultModel: 'gemini-1.5-flash',
+    theme: 'dark',
+    defaultModel: 'gemini-4-hydrogen',
     ollamaHost: 'http://localhost:11434',
     temperature: 0.7,
     contextWindow: 4096,
@@ -60,7 +60,7 @@ export function OfflineGptWorkspace() {
   });
 
   const [models, setModels] = useState<LocalAIModel[]>(SUPPORTED_LOCAL_MODELS);
-  const [activeModel, setActiveModel] = useState<string>('gemini-1.5-flash');
+  const [activeModel, setActiveModel] = useState<string>('gemini-4-hydrogen');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [lastImageError, setLastImageError] = useState<string | null>(null);
@@ -70,15 +70,33 @@ export function OfflineGptWorkspace() {
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [imageRetryCooldownUntil, setImageRetryCooldownUntil] = useState<number>(0);
 
+  // Sync HTML data-theme attribute whenever theme changes
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.dataset.theme = settings.theme;
+      try {
+        localStorage.setItem('offnex_theme', settings.theme);
+      } catch {
+        // Ignore storage errors
+      }
+    }
+  }, [settings.theme]);
+
   // Initialize Database, Auth and sync state on client mount
   useEffect(() => {
     async function loadData() {
-      await authService.init();
-      const existingUser = authService.getCurrentUser();
-      if (existingUser) {
-        setCurrentUser(existingUser);
+      authService.initSync();
+      const immediateUser = authService.getCurrentUser();
+      if (immediateUser) {
+        setCurrentUser(immediateUser);
       }
       setIsHydrated(true);
+
+      await authService.init();
+      const syncedUser = authService.getCurrentUser();
+      if (syncedUser) {
+        setCurrentUser(syncedUser);
+      }
 
       await db.init();
       const loadedSettings = await db.getSettings();
@@ -105,8 +123,8 @@ export function OfflineGptWorkspace() {
       const status = await aiEngine.checkOllamaStatus();
       setIsOllamaConnected(status.connected);
 
-      if (existingUser?.id) {
-        const imgs = await db.getImageHistory(existingUser.id);
+      if (syncedUser?.id) {
+        const imgs = await db.getImageHistory(syncedUser.id);
         setImageHistory(imgs);
       }
     }
@@ -167,19 +185,20 @@ export function OfflineGptWorkspace() {
     if (!text.trim() || isGenerating) return;
 
     let convId = activeConversationId;
+    let createdConv: Conversation | null = null;
     if (!convId) {
       convId = 'conv-' + Date.now();
-      const newConv: Conversation = {
+      createdConv = {
         id: convId,
-        title: text.slice(0, 30),
+        title: text.slice(0, 32),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         modelName: activeModel,
         language: language,
         messagesCount: 1,
       };
-      await db.saveConversation(newConv);
-      setConversations((prev) => [newConv, ...prev]);
+      await db.saveConversation(createdConv);
+      setConversations((prev) => [createdConv!, ...prev]);
       setActiveConversationId(convId);
     }
 
@@ -252,13 +271,13 @@ export function OfflineGptWorkspace() {
 
       await db.saveMessage(finalAssistantMsg);
 
-      const currentConv = conversations.find((c) => c.id === convId);
+      const currentConv = createdConv || conversations.find((c) => c.id === convId);
       if (currentConv) {
         const updated = {
           ...currentConv,
           title: currentConv.title === 'New Offline Chat' ? text.slice(0, 32) : currentConv.title,
           updatedAt: new Date().toISOString(),
-          messagesCount: (currentConv.messagesCount || 0) + 2,
+          messagesCount: (currentConv.messagesCount || 0) + (createdConv ? 1 : 2),
         };
         await db.saveConversation(updated);
         setConversations((prev) => prev.map((c) => (c.id === convId ? updated : c)));
@@ -560,8 +579,8 @@ export function OfflineGptWorkspace() {
   return (
     <div
       className={`flex flex-col h-[100dvh] w-full min-h-0 min-w-0 max-w-full ${
-        isLight ? 'bg-slate-100 text-slate-900' : 'bg-[#0B0D18] text-gray-100'
-      } overflow-hidden font-sans select-none transition-colors duration-500`}
+        isLight ? 'bg-white text-slate-900' : 'bg-[#0B0D18] text-gray-100'
+      } overflow-hidden font-sans select-none transition-colors duration-300`}
     >
       {/* 1. Desktop / Tablet Top Bar */}
       <DesktopHeader
@@ -573,6 +592,13 @@ export function OfflineGptWorkspace() {
         currentUser={currentUser}
         onLogout={handleLogout}
         offlineStrict={settings.offlineStrict}
+        theme={settings.theme}
+        onToggleTheme={async () => {
+          const nextTheme = settings.theme === 'dark' ? 'light' : 'dark';
+          const updated = { ...settings, theme: nextTheme } as AppSettings;
+          setSettings(updated);
+          await db.saveSettings(updated);
+        }}
       />
 
       {/* Mobile Top Header */}
@@ -621,7 +647,7 @@ export function OfflineGptWorkspace() {
         </div>
 
         {/* Center Workspace View Switcher */}
-        <main className="flex-1 flex flex-col h-full overflow-hidden bg-[#0B0D18] relative min-w-0">
+        <main className={`flex-1 flex flex-col h-full overflow-hidden ${isLight ? 'bg-white' : 'bg-[#0B0D18]'} relative min-w-0`}>
           {activeTab === 'home' && (
             <HomeView
               conversations={conversations}

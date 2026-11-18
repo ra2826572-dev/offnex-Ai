@@ -1,18 +1,14 @@
 import { createBrowserClient } from '@supabase/ssr';
+import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from './config';
 
 export function createClient() {
-  return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!
-  );
+  return createBrowserClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 }
 
 export function getSupabaseBrowserClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  if (!url || !key) return null;
+  if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) return null;
   try {
-    return createBrowserClient(url, key);
+    return createBrowserClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
   } catch {
     return null;
   }

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Settings as SettingsIcon, LogOut } from 'lucide-react';
+import { Settings as SettingsIcon, LogOut, Sun, Moon } from 'lucide-react';
 import { NavigationTab, UserProfile } from '../types';
 
 interface DesktopHeaderProps {
@@ -13,6 +13,8 @@ interface DesktopHeaderProps {
   currentUser?: UserProfile | null;
   onLogout?: () => void;
   offlineStrict?: boolean;
+  theme?: 'dark' | 'light';
+  onToggleTheme?: () => void;
 }
 
 export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
@@ -20,6 +22,8 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   currentUser,
   onLogout,
   offlineStrict = true,
+  theme = 'dark',
+  onToggleTheme,
 }) => {
   return (
     <header className="hidden md:flex h-12 border-b border-[#1F243D] bg-[#0E1020]/90 backdrop-blur-md px-3 lg:px-4 items-center justify-between select-none z-30 shrink-0 w-full gap-3">
@@ -51,7 +55,7 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: User Status & Settings */}
+      {/* Right: User Status, Theme & Settings */}
       <div className="flex items-center gap-2 shrink-0">
         {currentUser && (
           <button
@@ -71,6 +75,22 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
               ).toUpperCase()}
             </div>
             <span className="text-gray-200 font-medium">{currentUser.firstName}</span>
+          </button>
+        )}
+
+        {onToggleTheme && (
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            title={theme === 'dark' ? 'Switch to White Light Mode' : 'Switch to Dark Mode'}
+            aria-label={theme === 'dark' ? 'Switch to White Light Mode' : 'Switch to Dark Mode'}
+            className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-[#1A1F38] transition-colors cursor-pointer"
+          >
+            {theme === 'dark' ? (
+              <Moon className="w-4 h-4 text-purple-400" />
+            ) : (
+              <Sun className="w-4 h-4 text-amber-500" />
+            )}
           </button>
         )}
 

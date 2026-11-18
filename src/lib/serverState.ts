@@ -51,7 +51,7 @@ function getStore(): GlobalAdminStore {
       ],
       imageRateLimitMap: new Map<string, number[]>(),
       adminRuntimeConfig: {
-        defaultChatModel: process.env.GEMINI_CHAT_MODEL?.trim() || 'gemini-3.8-flash',
+        defaultChatModel: process.env.GEMINI_CHAT_MODEL?.trim() || 'gemini-4-hydrogen',
         defaultImageModel: getConfiguredImageModel('standard'),
         highQualityImageModel: getConfiguredImageModel('high'),
         imageRateLimitMax: IMAGE_RATE_LIMIT_MAX,

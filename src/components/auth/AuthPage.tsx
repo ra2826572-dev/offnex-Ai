@@ -34,6 +34,9 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const handleToggleTheme = () => {
     const nextMode = !isDarkMode;
     setIsDarkMode(nextMode);
+    if (typeof document !== 'undefined') {
+      document.documentElement.dataset.theme = nextMode ? 'dark' : 'light';
+    }
     setThemeToast(nextMode ? 'Switched to Deep Obsidian Dark Mode' : 'Switched to Light Mode (Offnex Ai Studio)');
     setTimeout(() => setThemeToast(null), 2500);
   };
@@ -41,7 +44,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   return (
     <div
       className={`relative h-full w-full ${
-        isDarkMode ? 'bg-[#07091A] text-white' : 'bg-slate-900 text-white'
+        isDarkMode ? 'bg-[#07091A] text-white' : 'bg-white text-slate-900'
       } overflow-y-auto overflow-x-hidden select-none transition-colors duration-500`}
     >
       {/* Background Ambient Glowing Waves */}

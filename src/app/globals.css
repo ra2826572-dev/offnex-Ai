@@ -75,6 +75,287 @@
   border: 1px solid rgba(117, 71, 255, 0.15);
 }
 
+/* =========================================================
+   GLOBAL PURE WHITE / LIGHT THEME (data-theme="light")
+   ========================================================= */
+html[data-theme="light"],
+html[data-theme="light"] body {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+html[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+html[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: rgba(117, 71, 255, 0.35);
+}
+
+html[data-theme="light"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(117, 71, 255, 0.6);
+}
+
+/* Primary white page & shell surfaces */
+html[data-theme="light"] .bg-\[\#0B0D18\],
+html[data-theme="light"] .bg-\[\#0B0B16\],
+html[data-theme="light"] .bg-\[\#07091A\],
+html[data-theme="light"] .bg-\[\#0A0D1C\],
+html[data-theme="light"] .bg-\[\#0B0E1C\],
+html[data-theme="light"] .bg-\[\#0B0E1D\],
+html[data-theme="light"] .bg-\[\#090B1E\],
+html[data-theme="light"] .bg-\[\#101324\],
+html[data-theme="light"] .bg-\[\#111426\],
+html[data-theme="light"] .bg-\[\#101426\],
+html[data-theme="light"] .bg-\[\#10132B\] {
+  background-color: #ffffff !important;
+}
+
+html[data-theme="light"] .bg-\[\#0B0B16\]\/90,
+html[data-theme="light"] .bg-\[\#0B0B16\]\/95,
+html[data-theme="light"] .bg-\[\#0E1020\]\/90,
+html[data-theme="light"] .bg-\[\#101324\]\/95,
+html[data-theme="light"] .bg-\[\#101426\]\/90,
+html[data-theme="light"] .bg-\[\#10132B\]\/90 {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+}
+
+html[data-theme="light"] .from-\[\#0B0B16\],
+html[data-theme="light"] .from-\[\#07091A\] {
+  --tw-gradient-from: #ffffff !important;
+}
+
+html[data-theme="light"] .via-\[\#0B0B16\]\/90 {
+  --tw-gradient-via: rgba(255, 255, 255, 0.92) !important;
+}
+
+/* Secondary cards, inputs & interactive surfaces */
+html[data-theme="light"] .bg-\[\#0C0E1C\],
+html[data-theme="light"] .bg-\[\#0E1122\],
+html[data-theme="light"] .bg-\[\#0F1224\],
+html[data-theme="light"] .bg-\[\#11152A\],
+html[data-theme="light"] .bg-\[\#121528\],
+html[data-theme="light"] .bg-\[\#12162B\],
+html[data-theme="light"] .bg-\[\#14172B\],
+html[data-theme="light"] .bg-\[\#14172B\]\/95,
+html[data-theme="light"] .bg-\[\#14172F\],
+html[data-theme="light"] .bg-\[\#14182B\],
+html[data-theme="light"] .bg-\[\#14182D\],
+html[data-theme="light"] .bg-\[\#14182E\],
+html[data-theme="light"] .bg-\[\#151930\],
+html[data-theme="light"] .bg-\[\#16192E\]\/95,
+html[data-theme="light"] .bg-\[\#161A30\],
+html[data-theme="light"] .bg-\[\#161B33\] {
+  background-color: #f8fafc !important;
+}
+
+html[data-theme="light"] .bg-\[\#181D35\],
+html[data-theme="light"] .bg-\[\#191D32\],
+html[data-theme="light"] .bg-\[\#191E38\],
+html[data-theme="light"] .bg-\[\#191F3B\],
+html[data-theme="light"] .bg-\[\#1A1D33\],
+html[data-theme="light"] .bg-\[\#1A1F38\],
+html[data-theme="light"] .bg-\[\#1A1F3A\],
+html[data-theme="light"] .bg-\[\#1A1F3E\],
+html[data-theme="light"] .bg-\[\#1A203C\],
+html[data-theme="light"] .bg-\[\#1A203D\],
+html[data-theme="light"] .bg-\[\#1C213D\],
+html[data-theme="light"] .bg-\[\#1D2342\],
+html[data-theme="light"] .bg-\[\#1E2342\],
+html[data-theme="light"] .bg-\[\#1F2545\],
+html[data-theme="light"] .bg-\[\#20243C\],
+html[data-theme="light"] .bg-\[\#202646\],
+html[data-theme="light"] .bg-\[\#202648\],
+html[data-theme="light"] .bg-\[\#222744\],
+html[data-theme="light"] .bg-\[\#222846\],
+html[data-theme="light"] .bg-\[\#222849\],
+html[data-theme="light"] .bg-\[\#232A4A\],
+html[data-theme="light"] .bg-\[\#252C50\],
+html[data-theme="light"] .bg-\[\#2A3158\],
+html[data-theme="light"] .bg-\[\#2B3054\] {
+  background-color: #f1f5f9 !important;
+}
+
+html[data-theme="light"] .hover\:bg-\[\#181D35\]:hover,
+html[data-theme="light"] .hover\:bg-\[\#1A1F38\]:hover,
+html[data-theme="light"] .hover\:bg-\[\#1A1F3E\]:hover,
+html[data-theme="light"] .hover\:bg-\[\#222849\]:hover,
+html[data-theme="light"] .hover\:bg-\[\#232A4A\]:hover,
+html[data-theme="light"] .hover\:bg-\[\#252C50\]:hover,
+html[data-theme="light"] .hover\:bg-\[\#252C52\]:hover,
+html[data-theme="light"] .hover\:bg-white\/5:hover {
+  background-color: #e2e8f0 !important;
+}
+
+/* Light theme gradient cards (Hero, Profile Card, Did You Know, Loading Card) */
+html[data-theme="light"] .from-\[\#121528\],
+html[data-theme="light"] .from-\[\#171B36\],
+html[data-theme="light"] .from-\[\#181D35\],
+html[data-theme="light"] .from-\[\#161932\] {
+  --tw-gradient-from: #ffffff !important;
+}
+
+html[data-theme="light"] .via-\[\#1A1E38\],
+html[data-theme="light"] .via-\[\#221C4A\] {
+  --tw-gradient-via: #f8fafc !important;
+}
+
+html[data-theme="light"] .to-\[\#121528\],
+html[data-theme="light"] .to-\[\#12162B\],
+html[data-theme="light"] .to-\[\#14172B\],
+html[data-theme="light"] .to-\[\#14182E\],
+html[data-theme="light"] .to-\[\#0D1326\],
+html[data-theme="light"] .to-\[\#0D1424\],
+html[data-theme="light"] .to-\[\#101225\],
+html[data-theme="light"] .to-\[\#121424\] {
+  --tw-gradient-to: #f1f5f9 !important;
+}
+
+html[data-theme="light"] .glass-panel {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+html[data-theme="light"] .glass-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+}
+
+/* Borders */
+html[data-theme="light"] .border-\[\#1C2042\]\/50,
+html[data-theme="light"] .border-\[\#1E2346\],
+html[data-theme="light"] .border-\[\#1F243D\],
+html[data-theme="light"] .border-\[\#1F243D\]\/60,
+html[data-theme="light"] .border-\[\#1F243D\]\/70,
+html[data-theme="light"] .border-\[\#1F2542\],
+html[data-theme="light"] .border-\[\#20254D\],
+html[data-theme="light"] .border-\[\#202646\],
+html[data-theme="light"] .border-\[\#222842\],
+html[data-theme="light"] .border-\[\#222846\],
+html[data-theme="light"] .border-\[\#22284E\],
+html[data-theme="light"] .border-\[\#232846\],
+html[data-theme="light"] .border-\[\#232847\],
+html[data-theme="light"] .border-\[\#232948\],
+html[data-theme="light"] .border-\[\#242A48\],
+html[data-theme="light"] .border-\[\#242A52\],
+html[data-theme="light"] .border-\[\#252B4D\],
+html[data-theme="light"] .border-\[\#262C4A\],
+html[data-theme="light"] .border-\[\#262D50\],
+html[data-theme="light"] .border-\[\#272D4D\],
+html[data-theme="light"] .border-\[\#272D50\],
+html[data-theme="light"] .border-\[\#272E50\],
+html[data-theme="light"] .border-\[\#2F3764\],
+html[data-theme="light"] .border-white\/5,
+html[data-theme="light"] .border-white\/10,
+html[data-theme="light"] .border-white\/15 {
+  border-color: #e2e8f0 !important;
+}
+
+/* Readable light-mode typography (crisp black text on white) */
+html[data-theme="light"] .text-white,
+html[data-theme="light"] .text-gray-100,
+html[data-theme="light"] .text-gray-200 {
+  color: #090d16 !important;
+}
+
+html[data-theme="light"] .text-gray-300,
+html[data-theme="light"] .text-slate-300 {
+  color: #1e293b !important;
+}
+
+html[data-theme="light"] .text-gray-400,
+html[data-theme="light"] .text-slate-400 {
+  color: #475569 !important;
+}
+
+html[data-theme="light"] .hover\:text-white:hover,
+html[data-theme="light"] .hover\:text-gray-200:hover {
+  color: #000000 !important;
+}
+
+html[data-theme="light"] .text-purple-200,
+html[data-theme="light"] .text-purple-300 {
+  color: #5b21b6 !important;
+}
+
+html[data-theme="light"] .text-cyan-300,
+html[data-theme="light"] .text-cyan-400 {
+  color: #0369a1 !important;
+}
+
+html[data-theme="light"] .text-emerald-300 {
+  color: #047857 !important;
+}
+
+html[data-theme="light"] .text-amber-300 {
+  color: #b45309 !important;
+}
+
+html[data-theme="light"] .text-blue-300 {
+  color: #1d4ed8 !important;
+}
+
+html[data-theme="light"] .text-rose-300 {
+  color: #be123c !important;
+}
+
+html[data-theme="light"] .bg-purple-950\/40 {
+  background-color: #f3e8ff !important;
+}
+
+html[data-theme="light"] .bg-blue-950\/40 {
+  background-color: #eff6ff !important;
+}
+
+/* Preserve white text ONLY on exact solid/gradient brand buttons, avatars & photo card overlays */
+html[data-theme="light"] .from-\[\#4435D5\],
+html[data-theme="light"] .from-\[\#4435D5\] *,
+html[data-theme="light"] .from-\[\#4824D5\],
+html[data-theme="light"] .from-\[\#4824D5\] *,
+html[data-theme="light"] .bg-\[\#4435D5\],
+html[data-theme="light"] .bg-\[\#4435D5\] *,
+html[data-theme="light"] .bg-\[\#7547FF\],
+html[data-theme="light"] .bg-\[\#7547FF\] *,
+html[data-theme="light"] .bg-purple-600.text-white,
+html[data-theme="light"] .bg-purple-600 .text-white,
+html[data-theme="light"] .bg-blue-600.text-white,
+html[data-theme="light"] .bg-blue-600 .text-white,
+html[data-theme="light"] .bg-emerald-600.text-white,
+html[data-theme="light"] .bg-emerald-600 .text-white,
+html[data-theme="light"] .bg-rose-600.text-white,
+html[data-theme="light"] .bg-rose-600 .text-white,
+html[data-theme="light"] .from-blue-600.text-white,
+html[data-theme="light"] .from-blue-600 *,
+html[data-theme="light"] .from-emerald-600.text-white,
+html[data-theme="light"] .from-emerald-600 *,
+html[data-theme="light"] .from-purple-600.text-white,
+html[data-theme="light"] .from-purple-600 *,
+html[data-theme="light"] .from-amber-600.text-white,
+html[data-theme="light"] .from-amber-600 *,
+html[data-theme="light"] .from-teal-600.text-white,
+html[data-theme="light"] .from-teal-600 *,
+html[data-theme="light"] .from-rose-600.text-white,
+html[data-theme="light"] .from-rose-600 *,
+html[data-theme="light"] .preset-card-overlay .text-white,
+html[data-theme="light"] .bg-black\/70,
+html[data-theme="light"] .bg-black\/70 *,
+html[data-theme="light"] .bg-black\/55,
+html[data-theme="light"] .bg-black\/55 * {
+  color: #ffffff !important;
+}
+
+html[data-theme="light"] input::placeholder,
+html[data-theme="light"] textarea::placeholder {
+  color: #64748b;
+}
+
+html[data-theme="light"] select option {
+  background-color: #ffffff !important;
+  color: #090d16 !important;
+}
+
 /* Urdu styling */
 .font-urdu {
   font-family: var(--font-urdu);

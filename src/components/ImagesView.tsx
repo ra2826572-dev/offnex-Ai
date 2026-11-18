@@ -38,6 +38,31 @@ import {
 } from '../services/imageService';
 import { ImageGenerationSubmitPayload } from './ChatView';
 import { ImageLightboxModal } from './ImageLightboxModal';
+import animeReactionImg from '../assets/images/anime_reaction_card_1794996270764.jpg';
+import aerialViewImg from '../assets/images/aerial_view_card_1794996270102.jpg';
+import collectorsTinImg from '../assets/images/collectors_tin_card_1794996271680.jpg';
+import retro80sImg from '../assets/images/retro_80s_card_1794996272443.jpg';
+import caricatureImg from '../assets/images/caricature_card_1794996272953.jpg';
+import sketchImg from '../assets/images/sketch_card_1794996272431.jpg';
+import stickersImg from '../assets/images/stickers_card_1794996271413.jpg';
+import photoBoothImg from '../assets/images/photo_booth_card_1794996272870.jpg';
+import y2kDigicamImg from '../assets/images/y2k_digicam_card_1794996273571.jpg';
+import animeImg from '../assets/images/anime_card_1794996272850.jpg';
+import portrait70sImg from '../assets/images/portrait_70s_card_1794996273531.jpg';
+import impressionistImg from '../assets/images/impressionist_card_1794996274336.jpg';
+import pinsImg from '../assets/images/pins_card_1794996274078.jpg';
+import underwaterImg from '../assets/images/underwater_card_1794996274643.jpg';
+import avatar3dImg from '../assets/images/avatar_3d_card_1794996275276.jpg';
+import tplLogoImg from '../assets/images/tpl_logo_card_1794996275279.jpg';
+import tplProductImg from '../assets/images/tpl_product_card_1794996274952.jpg';
+import tplSocialImg from '../assets/images/tpl_social_card_1794996275361.jpg';
+import tplCinematicImg from '../assets/images/tpl_cinematic_card_1794996275842.jpg';
+import tplIsometricImg from '../assets/images/tpl_isometric_card_1794996275863.jpg';
+import tplEditorialImg from '../assets/images/tpl_editorial_card_1794996276890.jpg';
+import tplFantasyImg from '../assets/images/tpl_fantasy_card_1794996276673.jpg';
+import tplAnimeKeyImg from '../assets/images/tpl_anime_key_card_1794996277292.jpg';
+import tplBookIllustImg from '../assets/images/tpl_book_illust_card_1794996277440.jpg';
+import tplStickerPackImg from '../assets/images/tpl_sticker_pack_card_1794996278598.jpg';
 
 interface ImagesViewProps {
   imageHistory: GeneratedImageRecord[];
@@ -57,6 +82,7 @@ interface PresetCardItem {
   style: ImageStyle;
   aspectRatio: ImageAspectRatio;
   prompt: string;
+  imageSrc: string;
   gradient: string;
   accent: string;
   motif:
@@ -88,6 +114,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Anime',
     aspectRatio: '1:1',
     prompt: 'Expressive cheerful anime character with sparkling heart eyes and dynamic comic background',
+    imageSrc: animeReactionImg.src,
     gradient: 'from-rose-500/30 via-pink-500/20 to-amber-400/20',
     accent: '#FB7185',
     motif: 'anime-heart',
@@ -98,6 +125,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Realistic Photography',
     aspectRatio: '1:1',
     prompt: 'Top-down drone aerial photography of a tiny puppy sitting in sunlit emerald green grass',
+    imageSrc: aerialViewImg.src,
     gradient: 'from-emerald-600/40 via-green-700/30 to-lime-900/40',
     accent: '#34D399',
     motif: 'aerial',
@@ -108,6 +136,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Product Photography',
     aspectRatio: '1:1',
     prompt: 'Open vintage metal keepsake collector tin filled with mini polaroid photos, pressed flowers, and souvenirs on sage background',
+    imageSrc: collectorsTinImg.src,
     gradient: 'from-teal-700/35 via-emerald-800/30 to-stone-700/40',
     accent: '#5EEAD4',
     motif: 'tin',
@@ -118,6 +147,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Realistic Photography',
     aspectRatio: '1:1',
     prompt: 'Retro 1980s studio portrait with denim jacket, sunglasses, warm film grain, and nostalgic backdrop',
+    imageSrc: retro80sImg.src,
     gradient: 'from-amber-700/35 via-stone-700/40 to-orange-900/35',
     accent: '#FBBF24',
     motif: 'retro80s',
@@ -128,6 +158,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Digital Art',
     aspectRatio: '1:1',
     prompt: 'Charming stylized 3D caricature portrait of a creative explorer holding a sketchbook and paint palette under blue sky',
+    imageSrc: caricatureImg.src,
     gradient: 'from-sky-500/35 via-blue-600/25 to-indigo-700/35',
     accent: '#38BDF8',
     motif: 'caricature',
@@ -138,6 +169,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Illustration',
     aspectRatio: '1:1',
     prompt: 'Minimalist hand-drawn ink and watercolor marker sketch of a daisy flower and tiny bumblebee on textured cream paper',
+    imageSrc: sketchImg.src,
     gradient: 'from-slate-200/20 via-amber-100/15 to-zinc-400/20',
     accent: '#FDE047',
     motif: 'sketch',
@@ -148,6 +180,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Illustration',
     aspectRatio: '1:1',
     prompt: 'Cute die-cut vinyl sticker pack sheet featuring a black cat, potted houseplant, and smiling character on bright yellow background',
+    imageSrc: stickersImg.src,
     gradient: 'from-yellow-500/35 via-amber-500/25 to-orange-500/30',
     accent: '#FACC15',
     motif: 'stickers',
@@ -158,6 +191,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Realistic Photography',
     aspectRatio: '1:1',
     prompt: 'Candid black and white vintage photo booth flash portrait with crisp contrast and joyful expressions',
+    imageSrc: photoBoothImg.src,
     gradient: 'from-zinc-600/40 via-neutral-700/40 to-stone-900/50',
     accent: '#E4E4E7',
     motif: 'photobooth',
@@ -168,6 +202,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Realistic Photography',
     aspectRatio: '1:1',
     prompt: 'Early 2000s Y2K digital camera flash snapshot with silver headphones, pastel velour jacket, and retro aesthetic',
+    imageSrc: y2kDigicamImg.src,
     gradient: 'from-fuchsia-600/35 via-pink-500/25 to-slate-700/35',
     accent: '#F472B6',
     motif: 'y2k',
@@ -178,6 +213,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Anime',
     aspectRatio: '1:1',
     prompt: 'Classic 90s cel-shaded anime hero pointing confidently against a dramatic twilight city gradient',
+    imageSrc: animeImg.src,
     gradient: 'from-indigo-600/40 via-blue-700/30 to-amber-500/25',
     accent: '#818CF8',
     motif: 'anime',
@@ -188,6 +224,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Cinematic',
     aspectRatio: '1:1',
     prompt: 'Warm golden-hour 1970s 35mm film portrait with aviator glasses, corduroy jacket, and soft bokeh',
+    imageSrc: portrait70sImg.src,
     gradient: 'from-orange-700/40 via-amber-800/35 to-stone-800/40',
     accent: '#FB923C',
     motif: 'portrait70s',
@@ -198,6 +235,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Digital Art',
     aspectRatio: '1:1',
     prompt: 'Luminous oil impasto impressionist painting overlooking a sunlit Mediterranean cliffside sea at sunset',
+    imageSrc: impressionistImg.src,
     gradient: 'from-blue-600/35 via-amber-500/30 to-orange-600/35',
     accent: '#60A5FA',
     motif: 'impressionist',
@@ -208,6 +246,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Illustration',
     aspectRatio: '1:1',
     prompt: 'Flat lay collection of colorful enamel lapel pins on a textured violet fabric board',
+    imageSrc: pinsImg.src,
     gradient: 'from-purple-600/40 via-violet-700/35 to-indigo-800/40',
     accent: '#C084FC',
     motif: 'pins',
@@ -218,6 +257,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: 'Cinematic',
     aspectRatio: '1:1',
     prompt: 'Dreamy underwater sunlight caustics shimmering across clear turquoise water and floating bubbles',
+    imageSrc: underwaterImg.src,
     gradient: 'from-cyan-600/40 via-teal-700/35 to-sky-900/40',
     accent: '#22D3EE',
     motif: 'underwater',
@@ -228,6 +268,7 @@ const TRENDING_PRESETS: PresetCardItem[] = [
     style: '3D Rendering',
     aspectRatio: '1:1',
     prompt: 'Stylized glossy 3D character avatar wearing orange translucent sunglasses with vibrant sky backdrop',
+    imageSrc: avatar3dImg.src,
     gradient: 'from-blue-500/40 via-cyan-500/30 to-indigo-600/35',
     accent: '#38BDF8',
     motif: 'avatar3d',
@@ -241,6 +282,7 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
     style: 'Logo Design',
     aspectRatio: '1:1',
     prompt: 'Minimalist geometric emblem logo for a next-generation AI technology company, indigo and electric violet gradient on dark obsidian background',
+    imageSrc: tplLogoImg.src,
     gradient: 'from-violet-600/40 via-purple-700/35 to-indigo-900/45',
     accent: '#A78BFA',
     motif: 'logo',
@@ -251,6 +293,7 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
     style: 'Product Photography',
     aspectRatio: '4:3',
     prompt: 'Luxury commercial product photography of matte black wireless headphones floating over dark reflective slate with soft rim lighting',
+    imageSrc: tplProductImg.src,
     gradient: 'from-slate-700/40 via-indigo-900/35 to-zinc-900/50',
     accent: '#818CF8',
     motif: 'product',
@@ -261,6 +304,7 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
     style: 'Social Media Graphics',
     aspectRatio: '9:16',
     prompt: 'High-impact modern launch poster with bold geometric 3D glass shapes, neon purple glow, and clean negative space for typography',
+    imageSrc: tplSocialImg.src,
     gradient: 'from-fuchsia-600/40 via-purple-700/35 to-blue-800/40',
     accent: '#E879F9',
     motif: 'social',
@@ -271,6 +315,7 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
     style: 'Cinematic',
     aspectRatio: '16:9',
     prompt: 'Anamorphic widescreen sci-fi scene of a lone traveler overlooking a glowing futuristic megacity through misty rain',
+    imageSrc: tplCinematicImg.src,
     gradient: 'from-cyan-700/35 via-indigo-900/45 to-purple-900/45',
     accent: '#22D3EE',
     motif: 'cinematic',
@@ -281,6 +326,7 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
     style: '3D Rendering',
     aspectRatio: '1:1',
     prompt: 'Cute isometric 3D render of a cozy night-time developer desk with glowing dual monitors, plants, and warm desk lamp',
+    imageSrc: tplIsometricImg.src,
     gradient: 'from-indigo-600/40 via-blue-800/35 to-purple-900/40',
     accent: '#60A5FA',
     motif: 'avatar3d',
@@ -291,6 +337,7 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
     style: 'Realistic Photography',
     aspectRatio: '4:3',
     prompt: 'Natural-light 85mm editorial photography of an architect in a sunlit modern glass studio, shallow depth of field',
+    imageSrc: tplEditorialImg.src,
     gradient: 'from-amber-600/30 via-stone-700/35 to-slate-800/45',
     accent: '#FBBF24',
     motif: 'portrait70s',
@@ -301,6 +348,7 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
     style: 'Digital Art',
     aspectRatio: '16:9',
     prompt: 'Epic digital concept art of floating crystal islands linked by glowing light bridges above clouds at twilight',
+    imageSrc: tplFantasyImg.src,
     gradient: 'from-purple-600/40 via-indigo-700/35 to-teal-700/30',
     accent: '#C084FC',
     motif: 'impressionist',
@@ -311,6 +359,7 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
     style: 'Anime',
     aspectRatio: '16:9',
     prompt: 'Detailed anime movie key visual of cherry blossoms drifting past a hillside train station overlooking the ocean at dusk',
+    imageSrc: tplAnimeKeyImg.src,
     gradient: 'from-pink-500/35 via-purple-600/30 to-indigo-800/40',
     accent: '#F472B6',
     motif: 'anime',
@@ -321,6 +370,7 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
     style: 'Illustration',
     aspectRatio: '4:3',
     prompt: 'Storybook gouache illustration of a cozy woodland library inside an ancient oak tree lit by hanging lanterns',
+    imageSrc: tplBookIllustImg.src,
     gradient: 'from-emerald-700/35 via-amber-700/25 to-stone-800/40',
     accent: '#34D399',
     motif: 'sketch',
@@ -331,6 +381,7 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
     style: 'Illustration',
     aspectRatio: '1:1',
     prompt: 'Clean vector badge and sticker pack featuring rockets, coffee cups, lightning bolts, and headphones on dark backdrop',
+    imageSrc: tplStickerPackImg.src,
     gradient: 'from-yellow-500/30 via-rose-500/25 to-purple-700/35',
     accent: '#FDE047',
     motif: 'pins',
@@ -338,171 +389,35 @@ const TEMPLATE_PRESETS: PresetCardItem[] = [
 ];
 
 const PresetArtwork: React.FC<{ item: PresetCardItem }> = ({ item }) => {
+  const [imgFailed, setImgFailed] = useState(false);
+
   return (
-    <div className={`relative w-full h-full bg-gradient-to-br ${item.gradient} overflow-hidden`}>
-      {/* Ambient glow */}
-      <div
-        className="absolute -top-6 -right-6 w-28 h-28 rounded-full blur-2xl opacity-50"
-        style={{ background: item.accent }}
-      />
-      <div className="absolute -bottom-8 -left-6 w-28 h-28 rounded-full blur-2xl opacity-25 bg-purple-600" />
+    <div className={`preset-card-overlay relative w-full h-full bg-gradient-to-br ${item.gradient} overflow-hidden`}>
+      {!imgFailed ? (
+        <img
+          src={item.imageSrc}
+          alt={item.title}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          onError={() => setImgFailed(true)}
+          className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-500"
+        />
+      ) : (
+        <div
+          className="w-full h-full flex items-center justify-center p-4"
+          aria-hidden="true"
+        >
+          <div
+            className="w-16 h-16 rounded-2xl opacity-60 blur-md"
+            style={{ background: item.accent }}
+          />
+        </div>
+      )}
 
-      {/* Custom crisp vector artwork per motif */}
-      <svg
-        viewBox="0 0 200 240"
-        className="w-full h-full object-cover opacity-90 group-hover:scale-105 transition-transform duration-500"
-        aria-hidden="true"
-      >
-        <defs>
-          <linearGradient id={`grad-${item.id}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor={item.accent} stopOpacity="0.85" />
-            <stop offset="100%" stopColor="#7547FF" stopOpacity="0.45" />
-          </linearGradient>
-        </defs>
-
-        {item.motif === 'anime-heart' && (
-          <>
-            <circle cx="100" cy="95" r="48" fill="#FFE4D6" />
-            <path d="M52 92 C52 46, 148 46, 148 92 C142 66, 58 66, 52 92 Z" fill="#F97316" />
-            <path d="M76 88 C72 80, 62 84, 68 94 L76 102 L84 94 C90 84, 80 80, 76 88 Z" fill="#EC4899" />
-            <path d="M124 88 C120 80, 110 84, 116 94 L124 102 L132 94 C138 84, 128 80, 124 88 Z" fill="#EC4899" />
-            <path d="M84 114 Q100 130 116 114 Z" fill="#FB7185" />
-            <path d="M48 190 C54 148, 146 148, 152 190 Z" fill="#2563EB" />
-          </>
-        )}
-
-        {item.motif === 'aerial' && (
-          <>
-            <rect width="200" height="240" fill="#14532D" opacity="0.4" />
-            <circle cx="40" cy="50" r="35" fill="#22C55E" opacity="0.22" />
-            <circle cx="155" cy="140" r="45" fill="#4ADE80" opacity="0.18" />
-            <ellipse cx="100" cy="122" rx="20" ry="26" fill="#D97706" />
-            <circle cx="100" cy="96" r="15" fill="#F59E0B" />
-            <ellipse cx="86" cy="94" rx="5" ry="9" fill="#92400E" />
-            <ellipse cx="114" cy="94" rx="5" ry="9" fill="#92400E" />
-          </>
-        )}
-
-        {item.motif === 'tin' && (
-          <>
-            <rect x="44" y="42" width="112" height="72" rx="14" fill="#E2E8F0" opacity="0.88" />
-            <rect x="52" y="50" width="96" height="56" rx="10" fill="#334155" />
-            <rect x="44" y="118" width="112" height="76" rx="14" fill="#CBD5E1" opacity="0.92" />
-            <rect x="54" y="128" width="42" height="52" rx="6" fill="#0EA5E9" opacity="0.7" />
-            <circle cx="126" cy="154" r="18" fill="#F59E0B" opacity="0.8" />
-          </>
-        )}
-
-        {(item.motif === 'retro80s' || item.motif === 'portrait70s' || item.motif === 'y2k' || item.motif === 'photobooth') && (
-          <>
-            <circle cx="100" cy="86" r="34" fill={`url(#grad-${item.id})`} />
-            <rect x="74" y="76" width="22" height="12" rx="4" fill="#0B0B16" opacity="0.85" />
-            <rect x="104" y="76" width="22" height="12" rx="4" fill="#0B0B16" opacity="0.85" />
-            <line x1="96" y1="81" x2="104" y2="81" stroke="#0B0B16" strokeWidth="2.5" />
-            <path d="M46 196 C54 140, 146 140, 154 196 Z" fill={item.accent} opacity="0.65" />
-            <circle cx="152" cy="52" r="16" stroke={item.accent} strokeWidth="2" fill="none" opacity="0.45" />
-          </>
-        )}
-
-        {(item.motif === 'caricature' || item.motif === 'avatar3d') && (
-          <>
-            <circle cx="100" cy="100" r="46" fill={`url(#grad-${item.id})`} />
-            <rect x="64" y="88" width="32" height="18" rx="7" fill="#FB923C" opacity="0.9" />
-            <rect x="104" y="88" width="32" height="18" rx="7" fill="#FB923C" opacity="0.9" />
-            <path d="M84 124 Q100 136 116 124" stroke="#FFF" strokeWidth="3.5" fill="none" strokeLinecap="round" />
-            <circle cx="62" cy="56" r="10" fill="#FDE047" opacity="0.7" />
-            <circle cx="144" cy="60" r="8" fill="#F472B6" opacity="0.7" />
-          </>
-        )}
-
-        {item.motif === 'sketch' && (
-          <>
-            <rect x="20" y="20" width="160" height="190" rx="14" fill="#F8FAFC" opacity="0.88" />
-            <line x1="100" y1="120" x2="100" y2="178" stroke="#16A34A" strokeWidth="3.5" />
-            {[0, 60, 120, 180, 240, 300].map((deg) => (
-              <ellipse
-                key={deg}
-                cx="100"
-                cy="74"
-                rx="12"
-                ry="24"
-                fill="#FFFFFF"
-                stroke="#1E293B"
-                strokeWidth="2"
-                transform={`rotate(${deg} 100 98)`}
-              />
-            ))}
-            <circle cx="100" cy="98" r="14" fill="#FACC15" stroke="#1E293B" strokeWidth="2" />
-          </>
-        )}
-
-        {(item.motif === 'stickers' || item.motif === 'pins') && (
-          <>
-            <circle cx="66" cy="76" r="28" fill="#FFFFFF" opacity="0.9" />
-            <circle cx="66" cy="76" r="21" fill="#1E293B" />
-            <circle cx="136" cy="72" r="24" fill="#FFFFFF" opacity="0.9" />
-            <circle cx="136" cy="72" r="17" fill="#10B981" />
-            <rect x="74" y="114" width="60" height="60" rx="16" fill="#FFFFFF" opacity="0.92" />
-            <rect x="82" y="122" width="44" height="44" rx="12" fill={item.accent} />
-          </>
-        )}
-
-        {(item.motif === 'anime' || item.motif === 'cinematic') && (
-          <>
-            <polygon points="0,180 65,110 120,160 165,95 200,180 200,240 0,240" fill="#0F172A" opacity="0.65" />
-            <circle cx="144" cy="64" r="24" fill={item.accent} opacity="0.7" />
-            <line x1="25" y1="54" x2="88" y2="54" stroke="#FFF" strokeWidth="2" opacity="0.35" />
-            <line x1="35" y1="68" x2="74" y2="68" stroke="#FFF" strokeWidth="2" opacity="0.25" />
-          </>
-        )}
-
-        {item.motif === 'impressionist' && (
-          <>
-            <path d="M0 140 Q60 110 120 138 T200 128 L200 240 L0 240 Z" fill="#1D4ED8" opacity="0.55" />
-            <circle cx="140" cy="72" r="28" fill="#F59E0B" opacity="0.7" />
-            <path d="M20 170 Q90 155 180 175" stroke="#FDE047" strokeWidth="5" fill="none" opacity="0.55" />
-          </>
-        )}
-
-        {item.motif === 'underwater' && (
-          <>
-            <ellipse cx="100" cy="40" rx="75" ry="18" fill="#67E8F9" opacity="0.35" />
-            <circle cx="64" cy="96" r="10" stroke="#A5F3FC" strokeWidth="2" fill="none" opacity="0.7" />
-            <circle cx="132" cy="120" r="16" stroke="#A5F3FC" strokeWidth="2" fill="none" opacity="0.6" />
-            <circle cx="96" cy="148" r="7" fill="#ECFEFF" opacity="0.6" />
-          </>
-        )}
-
-        {item.motif === 'logo' && (
-          <>
-            <polygon points="100,44 152,74 152,134 100,164 48,134 48,74" fill="none" stroke={item.accent} strokeWidth="6" />
-            <polygon points="100,66 132,84 132,124 100,142 68,124 68,84" fill={`url(#grad-${item.id})`} />
-          </>
-        )}
-
-        {item.motif === 'product' && (
-          <>
-            <ellipse cx="100" cy="166" rx="58" ry="12" fill="#000" opacity="0.5" />
-            <path d="M56 120 C56 68, 144 68, 144 120" stroke="#E2E8F0" strokeWidth="10" fill="none" strokeLinecap="round" />
-            <rect x="46" y="108" width="22" height="40" rx="10" fill={item.accent} />
-            <rect x="132" y="108" width="22" height="40" rx="10" fill={item.accent} />
-          </>
-        )}
-
-        {item.motif === 'social' && (
-          <>
-            <rect x="42" y="42" width="116" height="148" rx="18" fill="#1E1B4B" stroke={item.accent} strokeWidth="2" />
-            <circle cx="100" cy="96" r="30" fill={`url(#grad-${item.id})`} />
-            <rect x="62" y="140" width="76" height="10" rx="5" fill="#E2E8F0" opacity="0.85" />
-            <rect x="74" y="158" width="52" height="8" rx="4" fill={item.accent} opacity="0.7" />
-          </>
-        )}
-      </svg>
-
-      {/* Bottom dark gradient scrim + title overlay matching screenshot 2 */}
-      <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/85 via-black/40 to-transparent pointer-events-none" />
+      {/* Subtle hover ring highlight */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-transparent pointer-events-none transition-opacity duration-300" />
       <div className="absolute inset-x-0 bottom-0 p-3 flex items-end justify-between gap-2">
-        <span className="text-xs font-bold text-white tracking-tight drop-shadow-sm">
+        <span className="text-xs font-bold text-white tracking-tight drop-shadow-[0_2px_4px_rgba(0,0,0,0.85)]">
           {item.title}
         </span>
       </div>

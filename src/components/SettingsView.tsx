@@ -142,7 +142,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="min-w-0">
                 <div className="text-xs font-bold text-white">Theme</div>
                 <div className="text-[11px] text-gray-400 truncate">
-                  {settings.theme === 'dark' ? 'Dark Mode (#0B0D18 Deep Obsidian)' : 'Light Mode (Offnex Ai Studio)'}
+                  {settings.theme === 'dark' ? 'Dark Mode (#0B0D18 Deep Obsidian)' : 'Light Mode (#FFFFFF Pure White)'}
                 </div>
               </div>
             </div>

@@ -115,7 +115,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [appSettings, setAppSettings] = useState<AppSettings>({
     language: 'ur',
     theme: 'dark',
-    defaultModel: 'gemini-1.5-flash',
+    defaultModel: 'gemini-4-hydrogen',
     ollamaHost: 'http://localhost:11434',
     temperature: 0.7,
     contextWindow: 4096,
