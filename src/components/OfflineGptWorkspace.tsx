@@ -33,6 +33,7 @@ import { MobileBottomNav } from './MobileBottomNav';
 import { MobileDrawer } from './MobileDrawer';
 import { AuthPage } from './auth/AuthPage';
 import { Menu, WifiOff } from 'lucide-react';
+import { initPWAListeners } from '../hooks/usePWAInstall';
 
 export function OfflineGptWorkspace() {
   const [isHydrated, setIsHydrated] = useState(false);
@@ -69,6 +70,7 @@ export function OfflineGptWorkspace() {
   const [isModelManagerOpen, setIsModelManagerOpen] = useState(false);
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [imageRetryCooldownUntil, setImageRetryCooldownUntil] = useState<number>(0);
+  const [autoOpenInstall, setAutoOpenInstall] = useState(false);
 
   // Sync HTML data-theme attribute whenever theme changes
   useEffect(() => {
@@ -82,8 +84,18 @@ export function OfflineGptWorkspace() {
     }
   }, [settings.theme]);
 
-  // Initialize Database, Auth and sync state on client mount
+  // Initialize Database, Auth, PWA listeners and sync state on client mount
   useEffect(() => {
+    initPWAListeners();
+
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('install') === '1') {
+        setActiveTab('settings');
+        setAutoOpenInstall(true);
+      }
+    }
+
     async function loadData() {
       authService.initSync();
       const immediateUser = authService.getCurrentUser();
@@ -745,6 +757,8 @@ export function OfflineGptWorkspace() {
               setLanguage={handleLanguageChange}
               currentUser={currentUser}
               onLogout={handleLogout}
+              initialOpenInstall={autoOpenInstall}
+              onClearAutoOpenInstall={() => setAutoOpenInstall(false)}
             />
           )}
         </main>

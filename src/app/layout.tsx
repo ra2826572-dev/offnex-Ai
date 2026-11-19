@@ -15,6 +15,20 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary_large_image',
   },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Offnex Ai',
+  },
+  icons: {
+    icon: [
+      { url: '/icon.png', type: 'image/png' },
+      { url: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/assets/offnex_icon_square.png', type: 'image/png' },
+    ],
+    shortcut: '/icon.png',
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export const viewport: Viewport = {
