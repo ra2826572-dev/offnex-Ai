@@ -18,7 +18,12 @@ import { db } from '../services/db';
 import { aiEngine, SUPPORTED_LOCAL_MODELS } from '../services/aiEngine';
 import { documentProcessor } from '../services/documentProcessor';
 import { authService } from '../services/authService';
-import { generateImageApi } from '../services/imageService';
+import {
+  generateImageApi,
+  getDailyImageQuota,
+  recordDailyImageUsage,
+  DAILY_IMAGE_LIMIT,
+} from '../services/imageService';
 
 import { DesktopHeader } from './DesktopHeader';
 import { Sidebar } from './Sidebar';
@@ -32,7 +37,8 @@ import { ModelManagerModal } from './ModelManagerModal';
 import { MobileBottomNav } from './MobileBottomNav';
 import { MobileDrawer } from './MobileDrawer';
 import { AuthPage } from './auth/AuthPage';
-import { Menu, WifiOff } from 'lucide-react';
+import { Menu, WifiOff, Sparkles, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { initPWAListeners } from '../hooks/usePWAInstall';
 
 export function OfflineGptWorkspace() {
@@ -71,6 +77,17 @@ export function OfflineGptWorkspace() {
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [imageRetryCooldownUntil, setImageRetryCooldownUntil] = useState<number>(0);
   const [autoOpenInstall, setAutoOpenInstall] = useState(false);
+  const [dailyUsageTick, setDailyUsageTick] = useState(0);
+  const [welcomeBannerName, setWelcomeBannerName] = useState<string | null>(null);
+
+  // Auto-dismiss welcome message after 6 seconds
+  useEffect(() => {
+    if (!welcomeBannerName) return;
+    const timer = setTimeout(() => {
+      setWelcomeBannerName(null);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [welcomeBannerName]);
 
   // Sync HTML data-theme attribute whenever theme changes
   useEffect(() => {
@@ -316,6 +333,20 @@ export function OfflineGptWorkspace() {
     }
 
     const uid = currentUser?.id || 'anonymous';
+    const currentDailyQuota = getDailyImageQuota(uid, imageHistory, DAILY_IMAGE_LIMIT);
+    if (currentDailyQuota.remaining <= 0) {
+      setLastImageError(
+        `Daily image limit reached (${currentDailyQuota.limit}/${currentDailyQuota.limit} images used today). Free chat is unlimited — you can create more images tomorrow.`
+      );
+      return;
+    }
+    if (payload.count > currentDailyQuota.remaining) {
+      setLastImageError(
+        `Only ${currentDailyQuota.remaining} image(s) left in today's ${currentDailyQuota.limit}-image daily limit. Please set image count to ${currentDailyQuota.remaining} or less.`
+      );
+      return;
+    }
+
     setLastImageError(null);
     let convId = activeConversationId;
     let newlyCreatedConv: Conversation | null = null;
@@ -436,11 +467,16 @@ export function OfflineGptWorkspace() {
       };
       await db.saveImageRecord(historyRecord);
       setImageHistory((prev) => [historyRecord, ...prev]);
+      recordDailyImageUsage(uid, result.images.length);
+      setDailyUsageTick((t) => t + 1);
     } catch (err: unknown) {
       const errObj = err as { message?: string };
       const rawMsg = errObj?.message || 'Image generation failed.';
+      const lower = rawMsg.toLowerCase();
+      const isDailyLimitError =
+        lower.includes('daily') || lower.includes('per day') || lower.includes('10 images');
       const isQuotaError =
-        rawMsg.toLowerCase().includes('quota') || rawMsg.toLowerCase().includes('429');
+        !isDailyLimitError && (lower.includes('quota') || lower.includes('429'));
 
       const errorMsg = isQuotaError
         ? 'Image generation quota exceeded. Please try again later or check your Google AI billing and quota.'
@@ -556,6 +592,8 @@ export function OfflineGptWorkspace() {
   };
 
   const activeModelObj = models.find((m) => m.id === activeModel) || models[0];
+  void dailyUsageTick;
+  const dailyImageQuota = getDailyImageQuota(currentUser?.id, imageHistory, DAILY_IMAGE_LIMIT);
 
   // Prevent SSR/client hydration mismatch while reading localStorage auth state
   if (!isHydrated) {
@@ -581,6 +619,13 @@ export function OfflineGptWorkspace() {
         onAuthenticated={() => {
           const authed = authService.getCurrentUser();
           setCurrentUser(authed);
+          if (authed) {
+            const fullName = [authed.firstName, authed.lastName]
+              .filter(Boolean)
+              .join(' ')
+              .trim();
+            setWelcomeBannerName(fullName || authed.email.split('@')[0] || 'User');
+          }
         }}
       />
     );
@@ -592,8 +637,44 @@ export function OfflineGptWorkspace() {
     <div
       className={`flex flex-col h-[100dvh] w-full min-h-0 min-w-0 max-w-full ${
         isLight ? 'bg-white text-slate-900' : 'bg-[#0B0D18] text-gray-100'
-      } overflow-hidden font-sans select-none transition-colors duration-300`}
+      } overflow-hidden font-sans select-none transition-colors duration-300 relative`}
     >
+      {/* Post-Sign-In Welcome Greeting ("Hello <Name>") */}
+      <AnimatePresence>
+        {welcomeBannerName && (
+          <motion.div
+            initial={{ opacity: 0, y: -24, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -16, scale: 0.96 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            role="status"
+            aria-live="polite"
+            className="fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[92vw] max-w-md rounded-2xl bg-[#111426] border border-purple-500/45 shadow-2xl shadow-purple-950/50 px-4 py-3 flex items-center justify-between gap-3"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#4435D5] to-[#7547FF] flex items-center justify-center shrink-0 shadow-md shadow-purple-600/30">
+                <Sparkles className="w-4 h-4 text-white" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-extrabold text-white truncate">
+                  Hello {welcomeBannerName}!
+                </p>
+                <p className="text-[11px] text-gray-400 truncate">
+                  Welcome to Offnex Ai — ready to chat &amp; create.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              aria-label="Dismiss welcome message"
+              onClick={() => setWelcomeBannerName(null)}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-[#1A1F38] transition-colors cursor-pointer shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* 1. Desktop / Tablet Top Bar */}
       <DesktopHeader
         activeTab={activeTab}
@@ -734,6 +815,7 @@ export function OfflineGptWorkspace() {
               offlineStrict={settings.offlineStrict}
               onDisableOfflineMode={handleDisableOfflineMode}
               userId={currentUser?.id}
+              dailyQuota={dailyImageQuota}
             />
           )}
 

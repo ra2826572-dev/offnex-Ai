@@ -118,12 +118,21 @@ export async function POST(req: NextRequest) {
 
     const currentQuota = getRemainingImageQuota(userKey);
     if (currentQuota.remaining <= 0) {
-      const waitMins = Math.max(1, Math.ceil(currentQuota.resetMs / 60000));
-      pushServerLog('warn', 'image', `Rate limit reached for ${userKey}`, userKey);
+      pushServerLog('warn', 'image', `Daily image limit reached for ${userKey}`, userKey);
       return NextResponse.json(
         {
-          error: `Usage limit reached (${currentQuota.limit} generations per ${config.imageRateLimitWindowMinutes} minutes). Please try again in ~${waitMins} minute(s).`,
-          code: 'RATE_LIMIT_EXCEEDED',
+          error: `Daily image limit reached (${currentQuota.limit} images per day). Free AI chat is still unlimited — please generate more images tomorrow.`,
+          code: 'DAILY_LIMIT_EXCEEDED',
+          quota: currentQuota,
+        },
+        { status: 429 }
+      );
+    }
+    if (validCount > currentQuota.remaining) {
+      return NextResponse.json(
+        {
+          error: `Only ${currentQuota.remaining} image(s) left in your daily limit (${currentQuota.limit} per day). Please reduce image count to ${currentQuota.remaining}.`,
+          code: 'DAILY_LIMIT_EXCEEDED',
           quota: currentQuota,
         },
         { status: 429 }
@@ -164,7 +173,7 @@ export async function POST(req: NextRequest) {
       ]);
 
       clearTimeout(timeoutId);
-      const updatedQuota = consumeImageQuota(userKey);
+      const updatedQuota = consumeImageQuota(userKey, result.images.length);
       pushServerLog(
         'info',
         'image',

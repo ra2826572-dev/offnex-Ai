@@ -1,9 +1,90 @@
 import {
   GeneratedImageItem,
+  GeneratedImageRecord,
   ImageAspectRatio,
   ImageQuality,
   ImageStyle,
 } from '../types';
+
+export const DAILY_IMAGE_LIMIT = 10;
+
+function getLocalDateKey(date: Date = new Date()): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export interface DailyImageQuotaStatus {
+  used: number;
+  remaining: number;
+  limit: number;
+  dateKey: string;
+}
+
+export function getDailyImageQuota(
+  userId?: string,
+  imageHistory: GeneratedImageRecord[] = [],
+  limit: number = DAILY_IMAGE_LIMIT
+): DailyImageQuotaStatus {
+  const dateKey = getLocalDateKey();
+  const uid = (userId || 'anonymous').trim().toLowerCase();
+
+  let storedUsed = 0;
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = localStorage.getItem(`offnex_daily_img_usage:${uid}`);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { date?: string; used?: number };
+        if (parsed.date === dateKey && typeof parsed.used === 'number' && parsed.used > 0) {
+          storedUsed = Math.floor(parsed.used);
+        }
+      }
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  let historyUsedToday = 0;
+  for (const rec of imageHistory) {
+    if (rec.createdAt) {
+      const recDate = getLocalDateKey(new Date(rec.createdAt));
+      if (recDate === dateKey) {
+        historyUsedToday += Math.max(1, rec.images?.length || rec.count || 1);
+      }
+    }
+  }
+
+  const used = Math.max(storedUsed, historyUsedToday);
+  return {
+    used,
+    remaining: Math.max(0, limit - used),
+    limit,
+    dateKey,
+  };
+}
+
+export function recordDailyImageUsage(userId?: string, count: number = 1): void {
+  if (typeof window === 'undefined') return;
+  const dateKey = getLocalDateKey();
+  const uid = (userId || 'anonymous').trim().toLowerCase();
+  const key = `offnex_daily_img_usage:${uid}`;
+
+  let currentUsed = 0;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { date?: string; used?: number };
+      if (parsed.date === dateKey && typeof parsed.used === 'number') {
+        currentUsed = Math.max(0, Math.floor(parsed.used));
+      }
+    }
+    const nextUsed = currentUsed + Math.max(1, Math.floor(count));
+    localStorage.setItem(key, JSON.stringify({ date: dateKey, used: nextUsed }));
+  } catch {
+    // Ignore storage errors
+  }
+}
 
 export const IMAGE_STYLES: ImageStyle[] = [
   'Realistic Photography',

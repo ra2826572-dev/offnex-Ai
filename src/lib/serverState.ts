@@ -27,8 +27,8 @@ interface GlobalAdminStore {
   adminRuntimeConfig: ServerRuntimeConfig;
 }
 
-const IMAGE_RATE_LIMIT_MAX = 15;
-const IMAGE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const IMAGE_RATE_LIMIT_MAX = 10;
+const IMAGE_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_SERVER_LOGS = 200;
 
 const globalForOffnex = globalThis as typeof globalThis & {
@@ -162,7 +162,10 @@ export function getRemainingImageQuota(key: string): {
   };
 }
 
-export function consumeImageQuota(key: string): {
+export function consumeImageQuota(
+  key: string,
+  count: number = 1
+): {
   allowed: boolean;
   remaining: number;
   limit: number;
@@ -170,15 +173,19 @@ export function consumeImageQuota(key: string): {
 } {
   const store = getStore();
   const status = getRemainingImageQuota(key);
-  if (status.remaining <= 0) {
+  const units = Math.max(1, Math.floor(count));
+  if (status.remaining < units) {
     return { allowed: false, ...status };
   }
   const timestamps = store.imageRateLimitMap.get(key) || [];
-  timestamps.push(Date.now());
+  const now = Date.now();
+  for (let i = 0; i < units; i++) {
+    timestamps.push(now);
+  }
   store.imageRateLimitMap.set(key, timestamps);
   return {
     allowed: true,
-    remaining: Math.max(0, status.remaining - 1),
+    remaining: Math.max(0, status.remaining - units),
     limit: status.limit,
     resetMs: status.resetMs,
   };

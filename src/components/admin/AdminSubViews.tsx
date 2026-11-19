@@ -153,8 +153,8 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
       defaultChatModel: 'gemini-4-hydrogen',
       defaultImageModel: 'gemini-2.5-flash-image',
       highQualityImageModel: 'gemini-nano-banana-2.1',
-      imageRateLimitMax: 15,
-      imageRateLimitWindowMinutes: 10,
+      imageRateLimitMax: 10,
+      imageRateLimitWindowMinutes: 1440,
       maintenanceMode: false,
       allowLocalFallback: true,
       ollamaHost: 'http://localhost:11434',
@@ -869,20 +869,20 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
               />
             </label>
             <label className="space-y-1.5">
-              <span className="text-xs font-semibold text-slate-300">Image Rate Limit (Max / Window)</span>
+              <span className="text-xs font-semibold text-slate-300">Daily Image Limit (Max / Window)</span>
               <input
                 type="number"
                 min={1}
                 max={200}
                 value={activeConfig.imageRateLimitMax}
                 onChange={(e) =>
-                  setConfigDraft({ ...activeConfig, imageRateLimitMax: Number(e.target.value) || 15 })
+                  setConfigDraft({ ...activeConfig, imageRateLimitMax: Number(e.target.value) || 10 })
                 }
                 className="w-full bg-[#090C18] border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white font-mono tabular-nums"
               />
             </label>
             <label className="space-y-1.5">
-              <span className="text-xs font-semibold text-slate-300">Rate Limit Window (Minutes)</span>
+              <span className="text-xs font-semibold text-slate-300">Limit Window (Minutes, 1440 = 1 Day)</span>
               <input
                 type="number"
                 min={1}
@@ -891,7 +891,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
                 onChange={(e) =>
                   setConfigDraft({
                     ...activeConfig,
-                    imageRateLimitWindowMinutes: Number(e.target.value) || 10,
+                    imageRateLimitWindowMinutes: Number(e.target.value) || 1440,
                   })
                 }
                 className="w-full bg-[#090C18] border border-white/10 rounded-xl px-3.5 py-2 text-sm text-white font-mono tabular-nums"

@@ -329,8 +329,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <span className="text-xs sm:text-sm font-bold text-white truncate">
               {conversations.find((c) => c.id === activeConversationId)?.title || 'AI Chat'}
             </span>
-            <span className="hidden xl:inline-block text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
-              100% Local Inference
+            <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0 font-semibold">
+              Free Unlimited Chat
             </span>
           </div>
 

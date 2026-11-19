@@ -26,6 +26,8 @@ import {
   ImageStyle,
 } from '../types';
 import {
+  DailyImageQuotaStatus,
+  DAILY_IMAGE_LIMIT,
   IMAGE_ASPECT_RATIOS,
   IMAGE_STYLES,
   ImageCapabilities,
@@ -74,6 +76,7 @@ interface ImagesViewProps {
   offlineStrict: boolean;
   onDisableOfflineMode?: () => void;
   userId?: string;
+  dailyQuota?: DailyImageQuotaStatus;
 }
 
 interface PresetCardItem {
@@ -435,6 +438,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
   offlineStrict,
   onDisableOfflineMode,
   userId,
+  dailyQuota,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'trending' | 'templates' | 'my_images'>('trending');
   const [prompt, setPrompt] = useState('');
@@ -533,6 +537,12 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
   };
 
   const isCloudBlockedOffline = provider === 'gemini' && (!isOnline || offlineStrict);
+  const dailyLimit = capabilities?.quota?.limit ?? dailyQuota?.limit ?? DAILY_IMAGE_LIMIT;
+  const effectiveRemaining = Math.min(
+    dailyQuota?.remaining ?? dailyLimit,
+    capabilities?.quota?.remaining ?? dailyLimit
+  );
+  const isDailyLimitReached = effectiveRemaining <= 0;
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0B0B16] relative overflow-hidden min-w-0">
@@ -547,12 +557,18 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
             </span>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
-            {capabilities?.quota && (
-              <span className="px-2.5 py-1 rounded-full bg-[#14172B] border border-[#242A48] text-gray-300">
-                Quota: <strong className="text-purple-300">{capabilities.quota.remaining}</strong>/{capabilities.quota.limit}
-              </span>
-            )}
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span
+              className={`px-2.5 py-1 rounded-full border font-medium ${
+                isDailyLimitReached
+                  ? 'bg-rose-500/15 border-rose-500/35 text-rose-300'
+                  : effectiveRemaining <= 2
+                  ? 'bg-amber-500/15 border-amber-500/35 text-amber-300'
+                  : 'bg-[#14172B] border-[#242A48] text-gray-300'
+              }`}
+            >
+              Today: <strong className={isDailyLimitReached ? 'text-rose-300' : 'text-purple-300'}>{effectiveRemaining}</strong>/{dailyLimit} left
+            </span>
             <span
               className={`px-2.5 py-1 rounded-full border font-medium ${
                 isCloudBlockedOffline
@@ -1018,6 +1034,14 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
             </div>
           )}
 
+          {isDailyLimitReached && (
+            <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-[11px] text-rose-300 font-medium">
+              <span>
+                Aaj ki {dailyLimit} images ki daily limit poori ho chuki hai. Free Chat bina limit ke available hai — kal dubara {dailyLimit} images bana saktay hain.
+              </span>
+            </div>
+          )}
+
           {/* Main Floating Pill Prompt Bar */}
           <form
             onSubmit={handleSubmit}
@@ -1037,8 +1061,13 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
               type="text"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="Describe a new image"
-              className="flex-1 bg-transparent text-sm text-white placeholder-gray-400 focus:outline-none min-w-0 px-1"
+              disabled={isDailyLimitReached}
+              placeholder={
+                isDailyLimitReached
+                  ? `Daily limit reached (${dailyLimit}/${dailyLimit} images today)`
+                  : 'Describe a new image'
+              }
+              className="flex-1 bg-transparent text-sm text-white placeholder-gray-400 focus:outline-none min-w-0 px-1 disabled:opacity-60"
             />
 
             <button
@@ -1057,8 +1086,8 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
 
             <button
               type="submit"
-              disabled={!prompt.trim() || isGeneratingImage}
-              title="Generate Image"
+              disabled={!prompt.trim() || isGeneratingImage || isDailyLimitReached}
+              title={isDailyLimitReached ? 'Daily limit of 10 images reached' : 'Generate Image'}
               className="w-9 h-9 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-[#4435D5] to-[#7547FF] hover:from-[#5140E8] hover:to-[#865CFF] text-white flex items-center justify-center shadow-lg shadow-purple-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all transform active:scale-95 cursor-pointer shrink-0"
             >
               {isGeneratingImage ? (
