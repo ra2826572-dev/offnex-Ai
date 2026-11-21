@@ -386,7 +386,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 return (
                   <div
                     key={msg.id}
-                    className="flex justify-end items-end gap-2 max-w-[90%] sm:max-w-2xl ml-auto"
+                    className="flex flex-col items-end gap-1 max-w-[90%] sm:max-w-2xl ml-auto"
                   >
                     <div className="bg-[#4435D5] text-white px-3.5 sm:px-4 py-2.5 sm:py-3 rounded-2xl rounded-tr-sm shadow-md shadow-purple-950/40 text-sm leading-relaxed border border-purple-400/20 space-y-2">
                       {msg.imageGeneration?.referencePreviewUrl && (
@@ -404,6 +404,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
                         <CheckCheck className="w-3.5 h-3.5 text-blue-300 inline" />
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(msg.id, msg.content)}
+                      className="text-[10px] text-gray-400 hover:text-purple-300 transition-colors flex items-center gap-1 px-1 cursor-pointer"
+                    >
+                      {copiedId === msg.id ? (
+                        <>
+                          <Check className="w-3 h-3 text-emerald-400" />
+                          <span className="text-emerald-400">Copied</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3" />
+                          <span>Copy</span>
+                        </>
+                      )}
+                    </button>
                   </div>
                 );
               }
