@@ -208,6 +208,8 @@ export interface GenerateImageParams {
     mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
   };
   userId?: string;
+  userEmail?: string;
+  userName?: string;
   offlineStrict?: boolean;
 }
 
@@ -216,6 +218,7 @@ export interface GenerateImageApiResponse {
   modelUsed: string;
   provider: 'gemini' | 'local' | 'openai' | 'pinterest';
   textNote?: string;
+  savedRecordId?: string;
   quota?: {
     remaining: number;
     limit: number;
@@ -404,6 +407,7 @@ export async function generateImageApi(
       headers: {
         'Content-Type': 'application/json',
         ...(params.userId ? { 'x-user-id': params.userId } : {}),
+        ...(params.userEmail ? { 'x-user-email': params.userEmail } : {}),
       },
       body: JSON.stringify({
         prompt: params.prompt.trim(),
@@ -414,6 +418,8 @@ export async function generateImageApi(
         provider: params.provider,
         referenceImage: params.referenceImage,
         userId: params.userId,
+        userEmail: params.userEmail,
+        userName: params.userName,
       }),
       signal: controller.signal,
     });

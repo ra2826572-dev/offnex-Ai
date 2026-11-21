@@ -1,0 +1,178 @@
+[
+  {
+    "id": "imgrec-1795247120883",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "prompt": "mujay elon musk  ki image bana kar do",
+    "style": "Realistic Photography",
+    "aspectRatio": "1:1",
+    "quality": "standard",
+    "count": 1,
+    "modelUsed": "Offnex Image Studio",
+    "provider": "gemini",
+    "images": [
+      {
+        "id": "pin-srch-0-1795247117370",
+        "mimeType": "image/png",
+        "dataUrl": "/api/backend/images/file/gen_imgrec-1795247120883_0_1795249193229_8a933858.png"
+      }
+    ],
+    "hasReferenceImage": false,
+    "createdAt": "2026-11-21T07:45:20.883Z",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "imgrec-1795170788154",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "prompt": "Retro 1980s studio portrait with denim jacket, sunglasses, warm film grain, and nostalgic backdrop",
+    "style": "Realistic Photography",
+    "aspectRatio": "1:1",
+    "quality": "standard",
+    "count": 1,
+    "modelUsed": "Offnex Studio (On-Device)",
+    "provider": "local",
+    "images": [
+      {
+        "id": "offline-img-1795170788103-0",
+        "mimeType": "image/png",
+        "dataUrl": "/api/backend/images/file/gen_imgrec-1795170788154_0_1795249192323_d2a90edc.png"
+      }
+    ],
+    "hasReferenceImage": false,
+    "createdAt": "2026-11-20T10:33:08.154Z",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "imgrec-1795170772851",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "prompt": "mujay imran khan ki image  bana akr do",
+    "style": "Realistic Photography",
+    "aspectRatio": "1:1",
+    "quality": "standard",
+    "count": 1,
+    "modelUsed": "Offnex Studio (On-Device)",
+    "provider": "local",
+    "images": [
+      {
+        "id": "offline-img-1795170772787-0",
+        "mimeType": "image/png",
+        "dataUrl": "/api/backend/images/file/gen_imgrec-1795170772851_0_1795249192133_654e064b.png"
+      }
+    ],
+    "hasReferenceImage": false,
+    "createdAt": "2026-11-20T10:32:52.851Z",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "imgrec-1795247209832",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "prompt": "mujay marem nawaz ki image bana kar do",
+    "style": "Realistic Photography",
+    "aspectRatio": "1:1",
+    "quality": "standard",
+    "count": 1,
+    "modelUsed": "Offnex Studio (On-Device)",
+    "provider": "local",
+    "images": [
+      {
+        "id": "offline-img-1795247209699-0",
+        "mimeType": "image/png",
+        "dataUrl": "/api/backend/images/file/gen_imgrec-1795247209832_0_1795249192397_e48dc71b.png"
+      }
+    ],
+    "hasReferenceImage": false,
+    "createdAt": "2026-11-21T07:46:49.832Z",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "imgrec-1795247385955",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "prompt": "mujay marem nawaz ki image bana kar do",
+    "style": "Realistic Photography",
+    "aspectRatio": "1:1",
+    "quality": "standard",
+    "count": 1,
+    "modelUsed": "Offnex Image Studio",
+    "provider": "gemini",
+    "images": [
+      {
+        "id": "pin-srch-0-1795247384697",
+        "mimeType": "image/jpeg",
+        "dataUrl": "/api/backend/images/file/gen_imgrec-1795247385955_0_1795249189143_2ee462fe.jpg"
+      }
+    ],
+    "hasReferenceImage": false,
+    "createdAt": "2026-11-21T07:49:45.955Z",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "imgrec-1795171271328",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "prompt": "mujay imran khan ki image  banao",
+    "style": "Realistic Photography",
+    "aspectRatio": "1:1",
+    "quality": "standard",
+    "count": 1,
+    "modelUsed": "Offnex Cloud AI (Sana Diffusion)",
+    "provider": "gemini",
+    "images": [
+      {
+        "id": "cloud-img-1795171270211-s1h66m",
+        "mimeType": "image/jpeg",
+        "dataUrl": "/api/backend/images/file/gen_imgrec-1795171271328_0_1795249189202_d17c9703.jpg"
+      }
+    ],
+    "hasReferenceImage": false,
+    "createdAt": "2026-11-20T10:41:11.328Z",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "imgrec-1795247060719",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "prompt": "mujay ak RA ka logo desgin  kar kay do",
+    "style": "Realistic Photography",
+    "aspectRatio": "1:1",
+    "quality": "standard",
+    "count": 1,
+    "modelUsed": "Offnex Image Studio",
+    "provider": "gemini",
+    "images": [
+      {
+        "id": "pin-srch-0-1795247059846",
+        "mimeType": "image/jpeg",
+        "dataUrl": "/api/backend/images/file/gen_imgrec-1795247060719_0_1795249188590_ba508e77.jpg"
+      }
+    ],
+    "hasReferenceImage": false,
+    "createdAt": "2026-11-21T07:44:20.719Z",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "imgrec-1795247068651",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "prompt": "mujay ak RA ka logo desgin  kar kay do",
+    "style": "Realistic Photography",
+    "aspectRatio": "1:1",
+    "quality": "standard",
+    "count": 1,
+    "modelUsed": "Offnex Image Studio",
+    "provider": "gemini",
+    "images": [
+      {
+        "id": "pin-srch-0-1795247068046",
+        "mimeType": "image/jpeg",
+        "dataUrl": "/api/backend/images/file/gen_imgrec-1795247068651_0_1795249188602_dc2a925e.jpg"
+      }
+    ],
+    "hasReferenceImage": false,
+    "createdAt": "2026-11-21T07:44:28.651Z",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  }
+]

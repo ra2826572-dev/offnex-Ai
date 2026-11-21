@@ -1,0 +1,353 @@
+[
+  {
+    "id": "srv-1795256207787-d115",
+    "timestamp": "2026-11-21T10:16:47.788Z",
+    "level": "info",
+    "category": "users",
+    "message": "User signed in: ra2826572@gmail.com",
+    "actor": "ra2826572@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795256207568-ea00",
+    "timestamp": "2026-11-21T10:16:47.568Z",
+    "level": "info",
+    "category": "admin",
+    "message": "Admin Panel unlocked via password",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795256207432-74ec",
+    "timestamp": "2026-11-21T10:16:47.435Z",
+    "level": "warn",
+    "category": "admin",
+    "message": "Failed Admin Panel password attempt",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795256193960-875b",
+    "timestamp": "2026-11-21T10:16:33.961Z",
+    "level": "info",
+    "category": "users",
+    "message": "User signed in: ra2826572@gmail.com",
+    "actor": "ra2826572@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795256193656-e3a2",
+    "timestamp": "2026-11-21T10:16:33.656Z",
+    "level": "info",
+    "category": "admin",
+    "message": "Admin Panel unlocked via password",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795256193504-cb35",
+    "timestamp": "2026-11-21T10:16:33.504Z",
+    "level": "warn",
+    "category": "admin",
+    "message": "Failed Admin Panel password attempt",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795256065495-2b67",
+    "timestamp": "2026-11-21T10:14:25.495Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"New Offline Chat\"",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249270948-1cfa",
+    "timestamp": "2026-11-21T08:21:10.948Z",
+    "level": "warn",
+    "category": "users",
+    "message": "Deleted user account verify_1795249267658@example.com",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249270889-bcf7",
+    "timestamp": "2026-11-21T08:21:10.889Z",
+    "level": "warn",
+    "category": "chat",
+    "message": "Deleted conversation conv_verify_1795249267863",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249270831-1a45",
+    "timestamp": "2026-11-21T08:21:10.831Z",
+    "level": "warn",
+    "category": "image",
+    "message": "Removed generated image record imgrec-1795249269233-16sb",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249270728-768f",
+    "timestamp": "2026-11-21T08:21:10.729Z",
+    "level": "warn",
+    "category": "image",
+    "message": "Removed generated image record imgpng_verify_1795249269248",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249270167-3620",
+    "timestamp": "2026-11-21T08:21:10.167Z",
+    "level": "info",
+    "category": "system",
+    "message": "Uploaded knowledge document \"verify.txt\"",
+    "actor": "verify_1795249267658@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249269786-15bf",
+    "timestamp": "2026-11-21T08:21:09.787Z",
+    "level": "info",
+    "category": "tickets",
+    "message": "Saved support ticket \"Test Ticket\" (resolved)",
+    "actor": "verify_1795249267658@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249269535-bbf1",
+    "timestamp": "2026-11-21T08:21:09.535Z",
+    "level": "info",
+    "category": "tickets",
+    "message": "Saved support ticket \"Test Ticket\" (open)",
+    "actor": "verify_1795249267658@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249269236-575e",
+    "timestamp": "2026-11-21T08:21:09.236Z",
+    "level": "info",
+    "category": "image",
+    "message": "Generated 1 image(s) via Offnex Image Studio",
+    "actor": "user-1795249267691-ed5e",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249267929-6025",
+    "timestamp": "2026-11-21T08:21:07.929Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"Verify Chat\"",
+    "actor": "verify_1795249267658@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249267858-3dc3",
+    "timestamp": "2026-11-21T08:21:07.859Z",
+    "level": "info",
+    "category": "users",
+    "message": "User signed in: verify_1795249267658@example.com",
+    "actor": "verify_1795249267658@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249267734-954c",
+    "timestamp": "2026-11-21T08:21:07.735Z",
+    "level": "info",
+    "category": "users",
+    "message": "New user registered: Verify 1795249267658 (verify_1795249267658@example.com)",
+    "actor": "verify_1795249267658@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249267213-ae3c",
+    "timestamp": "2026-11-21T08:21:07.213Z",
+    "level": "warn",
+    "category": "image",
+    "message": "Removed generated image record imgpng_verify_1795249244135",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249267036-0eeb",
+    "timestamp": "2026-11-21T08:21:07.036Z",
+    "level": "warn",
+    "category": "chat",
+    "message": "Deleted conversation conv_verify_1795249243860",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249266747-ab0f",
+    "timestamp": "2026-11-21T08:21:06.749Z",
+    "level": "warn",
+    "category": "users",
+    "message": "Deleted user account verify_1795249243566@example.com",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249244130-3ff7",
+    "timestamp": "2026-11-21T08:20:44.130Z",
+    "level": "warn",
+    "category": "image",
+    "message": "Image gen notice (LOCAL_MODEL_UNAVAILABLE): Local Stable Diffusion is unreachable at http://127.0.0.1:7860 (ECONNREFUSED: Cannot reach http://127.0.0.1:7860). Start Automatic1111/Forge with --api or switch to Cloud Gemini.",
+    "actor": "user-1795249243591-f607",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249243940-2bca",
+    "timestamp": "2026-11-21T08:20:43.940Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"Verify Chat\"",
+    "actor": "verify_1795249243566@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249243855-1405",
+    "timestamp": "2026-11-21T08:20:43.856Z",
+    "level": "info",
+    "category": "users",
+    "message": "User signed in: verify_1795249243566@example.com",
+    "actor": "verify_1795249243566@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249243651-497a",
+    "timestamp": "2026-11-21T08:20:43.651Z",
+    "level": "info",
+    "category": "users",
+    "message": "New user registered: Verify 1795249243566 (verify_1795249243566@example.com)",
+    "actor": "verify_1795249243566@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249186547-e595",
+    "timestamp": "2026-11-21T08:19:46.548Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"mujay website bana kard o travel\"",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249186454-7e88",
+    "timestamp": "2026-11-21T08:19:46.455Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"ma na website banani ha\"",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249186446-cfb4",
+    "timestamp": "2026-11-21T08:19:46.447Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"New Offline Chat\"",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249186372-6dd3",
+    "timestamp": "2026-11-21T08:19:46.372Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"New Offline Chat\"",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249186361-544a",
+    "timestamp": "2026-11-21T08:19:46.362Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"kia hall ha\"",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249185702-da83",
+    "timestamp": "2026-11-21T08:19:45.703Z",
+    "level": "info",
+    "category": "users",
+    "message": "New user registered: Mushahidrafiqe744  (mushahidrafiqe744@gmail.com)",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249140875-c5df",
+    "timestamp": "2026-11-21T08:19:00.877Z",
+    "level": "warn",
+    "category": "users",
+    "message": "Deleted user account verify_1795249137625@example.com",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249140721-70cf",
+    "timestamp": "2026-11-21T08:19:00.721Z",
+    "level": "warn",
+    "category": "chat",
+    "message": "Deleted conversation conv_verify_1795249138114",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249140702-da13",
+    "timestamp": "2026-11-21T08:19:00.704Z",
+    "level": "warn",
+    "category": "image",
+    "message": "Removed generated image record imgrec-1795249139536-rzpm",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249139538-3698",
+    "timestamp": "2026-11-21T08:18:59.538Z",
+    "level": "info",
+    "category": "image",
+    "message": "Generated 1 image(s) via Offnex Image Studio",
+    "actor": "user-1795249137958-076a",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249138302-a72b",
+    "timestamp": "2026-11-21T08:18:58.302Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"Verify Chat\"",
+    "actor": "verify_1795249137625@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249138109-33ec",
+    "timestamp": "2026-11-21T08:18:58.110Z",
+    "level": "info",
+    "category": "users",
+    "message": "User signed in: verify_1795249137625@example.com",
+    "actor": "verify_1795249137625@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795249138014-e94d",
+    "timestamp": "2026-11-21T08:18:58.014Z",
+    "level": "info",
+    "category": "users",
+    "message": "New user registered: Verify 1795249137625 (verify_1795249137625@example.com)",
+    "actor": "verify_1795249137625@example.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-boot-1795249137958",
+    "timestamp": "2026-11-21T08:18:57.958Z",
+    "level": "info",
+    "category": "system",
+    "message": "Offnex AI persistent backend storage initialized",
+    "actor": "system",
+    "source": "server"
+  }
+]

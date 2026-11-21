@@ -17,6 +17,15 @@ import {
 } from '../../types';
 import { db } from '../../services/db';
 import { authService } from '../../services/authService';
+import {
+  deleteConversationOnBackend,
+  deleteImageRecordOnBackend,
+  deleteTicketOnBackend,
+  fetchAdminBootstrapFromBackend,
+  pushActivityLogToBackend,
+  saveTicketToBackend,
+  syncSettingsToBackend,
+} from '../../services/backendSync';
 import { AnalyticsRange, KpiSparkline, PlatformAnalyticsChart } from './AdminCharts';
 import { AdminSubViews } from './AdminSubViews';
 import {
@@ -134,6 +143,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       await authService.init();
       await db.init();
 
+      const bootstrap = await fetchAdminBootstrapFromBackend();
+      if (bootstrap) {
+        setUsers(bootstrap.users);
+        setConversations(bootstrap.conversations);
+        setMessages(bootstrap.messages);
+        setImages(bootstrap.images);
+        setDocuments(bootstrap.documents);
+        setAppSettings(bootstrap.settings);
+        setTickets(bootstrap.tickets);
+        setClientLogs(bootstrap.logs);
+        setOverview(bootstrap.overview);
+        return;
+      }
+
+      // Offline fallback from local IndexedDB
       const [convs, allMsgs, allImgs, docs, settings, storedTickets, cLogs, serverOverview] =
         await Promise.all([
           db.getConversations(),
@@ -183,56 +207,33 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // Merge server logs, client logs, and synthesized recent events from real DB items
+  // Deduplicated persisted server/client logs + synthesized latest events if logs are minimal
   const combinedLogs = useMemo<AdminActivityLog[]>(() => {
-    const derivedEvents: AdminActivityLog[] = [];
-    users.slice(0, 5).forEach((u) => {
-      derivedEvents.push({
-        id: `usr-evt-${u.id}`,
-        timestamp: u.lastLoginAt || u.createdAt,
-        level: 'info',
-        category: 'users',
-        message: `User registered / active: ${u.firstName} ${u.lastName}`,
-        actor: u.email,
-        source: 'client',
-      });
-    });
-    images.slice(0, 5).forEach((img) => {
-      derivedEvents.push({
-        id: `img-evt-${img.id}`,
-        timestamp: img.createdAt,
-        level: 'info',
-        category: 'image',
-        message: `Image generated (${img.provider}): ${img.prompt.slice(0, 48)}`,
-        actor: img.modelUsed,
-        source: 'client',
-      });
-    });
-    conversations.slice(0, 5).forEach((conv) => {
-      derivedEvents.push({
-        id: `chat-evt-${conv.id}`,
-        timestamp: conv.updatedAt,
-        level: 'info',
-        category: 'chat',
-        message: `Chat thread updated: ${conv.title}`,
-        actor: conv.modelName,
-        source: 'client',
-      });
-    });
-
-    const serverLogs = (overview?.logs || []).map((l) => ({ ...l, source: 'server' as const }));
-    const merged = [...serverLogs, ...clientLogs, ...derivedEvents];
+    const baseLogs = new Map<string, AdminActivityLog>();
+    for (const l of overview?.logs || []) {
+      baseLogs.set(l.id, { ...l, source: l.source || 'server' });
+    }
+    for (const l of clientLogs) {
+      if (!baseLogs.has(l.id)) {
+        baseLogs.set(l.id, l);
+      }
+    }
+    const merged = Array.from(baseLogs.values());
     merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return merged;
-  }, [overview?.logs, clientLogs, users, images, conversations]);
+  }, [overview?.logs, clientLogs]);
 
-  // Top Users computed from real users + chats/images count
+  // Top Users computed strictly from real per-user chats + images count
   const topUsersList = useMemo(() => {
     return users
-      .map((u, idx) => {
-        const userImgs = images.filter((img) => img.userId === u.id).length;
-        // Associate conversations with primary/owner user when single-device IndexedDB stores them without userId
-        const userChats = idx === 0 ? conversations.length : Math.max(0, Math.floor(conversations.length / Math.max(1, users.length)));
+      .map((u) => {
+        const emailLower = u.email.toLowerCase();
+        const userImgs = images.filter(
+          (img) => img.userId === u.id || img.userEmail?.toLowerCase() === emailLower
+        ).length;
+        const userChats = conversations.filter(
+          (c) => c.userId === u.id || c.userEmail?.toLowerCase() === emailLower
+        ).length;
         const score = userChats + userImgs;
         return {
           user: u,
@@ -274,7 +275,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     return results.slice(0, 8);
   }, [searchQuery, users, conversations, images]);
 
-  // Admin Mutations
+  // Admin Mutations (all persisted directly to backend DB + local cache)
   const handleCreateUser = async (payload: {
     firstName: string;
     lastName: string;
@@ -297,7 +298,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleUpdateUserRole = async (id: string, role: UserRole) => {
-    const next = authService.updateUserByAdmin(id, { role });
+    const next = await authService.updateUserByAdmin(id, { role });
     setUsers(next);
     await db.addActivityLog({
       level: 'info',
@@ -309,7 +310,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleDeleteUser = async (id: string) => {
-    const next = authService.deleteUserByAdmin(id);
+    const next = await authService.deleteUserByAdmin(id);
     setUsers(next);
     await db.addActivityLog({
       level: 'warn',
@@ -322,6 +323,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleDeleteConversation = async (id: string) => {
     await db.deleteConversation(id);
+    await deleteConversationOnBackend(id);
     await db.addActivityLog({
       level: 'warn',
       category: 'chat',
@@ -334,6 +336,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleDeleteImage = async (id: string) => {
     await db.adminDeleteImageRecord(id);
+    await deleteImageRecordOnBackend(id);
     await db.addActivityLog({
       level: 'warn',
       category: 'image',
@@ -346,6 +349,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleUpdateAppSettings = async (next: AppSettings) => {
     await db.saveSettings(next);
+    await syncSettingsToBackend(next);
     setAppSettings(next);
     await db.addActivityLog({
       level: 'info',
@@ -397,7 +401,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleSaveTicket = async (ticket: SupportTicket) => {
     await db.saveSupportTicket(ticket);
-    await db.addActivityLog({
+    await saveTicketToBackend(ticket);
+    await pushActivityLogToBackend({
       level: 'info',
       category: 'tickets',
       message: `Saved support ticket "${ticket.subject}" (${ticket.status})`,
@@ -408,6 +413,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleDeleteTicket = async (id: string) => {
     await db.deleteSupportTicket(id);
+    await deleteTicketOnBackend(id);
     await loadAllAdminData();
   };
 
@@ -738,7 +744,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                           {users.length}
                         </p>
                         <p className="text-[11px] font-semibold text-emerald-400 mt-1">
-                          Active on device
+                          Saved on backend
                         </p>
                       </div>
                     </div>

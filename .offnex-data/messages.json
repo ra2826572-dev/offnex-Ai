@@ -1,0 +1,68 @@
+[
+  {
+    "id": "msg-1795248059366",
+    "conversationId": "conv-1795248053093",
+    "role": "user",
+    "content": "kia hall ha",
+    "timestamp": "01:00 AM",
+    "modelUsed": "gemini-3.1-flash-lite",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8"
+  },
+  {
+    "id": "msg-1795248059378",
+    "conversationId": "conv-1795248053093",
+    "role": "assistant",
+    "content": "میں بالکل ٹھیک ہوں، شکریہ! آپ کیسے ہیں؟ امید ہے سب خیریت ہوگی۔\n\nمیں آپ کی کس طرح مدد کر سکتا ہوں؟",
+    "timestamp": "01:00 AM",
+    "modelUsed": "gemini-3.1-flash-lite",
+    "suggestedActions": [
+      "Summary",
+      "More Details"
+    ],
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8"
+  },
+  {
+    "id": "msg-1795247412566",
+    "conversationId": "conv-1795247404188",
+    "role": "user",
+    "content": "ma na website banani ha",
+    "timestamp": "12:50 AM",
+    "modelUsed": "gemini-3.1-flash-lite",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8"
+  },
+  {
+    "id": "msg-1795247412579",
+    "conversationId": "conv-1795247404188",
+    "role": "assistant",
+    "content": "Website banana aaj kal kafi asaan hai. Aap apni zarurat ke mutabiq niche diye gaye 3 mukhtalif tareeqon mein se koi bhi chun sakte hain:\n\n### 1. No-Code Platforms (Sabse Asaan)\nAgar aapko coding nahi aati aur aap jaldi website banana chahte hain, toh ye platforms best hain:\n*   **Wix / Squarespace:** Inmein \"Drag and Drop\" feature hota hai. Aap bas elements ko utha kar screen par set karte hain.\n*   **Shopify:** Agar aapne **E-commerce (online store)** banana hai, toh Shopify sabse behtar hai.\n*   **WordPress.com:** Blogging ya simple business websites ke liye bohot popular hai.\n\n### 2. WordPress.org (Professional aur Flexible)\nDuniya ki 40% websites isi par bani hain. Iske liye aapko:\n*   **Domain:** (Jaise `www.aapkanam.com`) khareedna hoga.\n*   **Hosting:** (Jahan aapki website ka data store hoga, jaise Hostinger ya Bluehost).\n*   **WordPress Install:** Hosting panel se one-click mein install ho jata hai.\n*   **Themes & Plugins:** Aap apni marzi ka design chun sakte hain aur features add kar sakte hain.\n\n### 3. Coding (Agar aap Developer banna chahte hain)\nAgar aap khud code karna seekhna chahte hain, toh aapko ye seekhna hoga:\n*   **HTML:** Website ka dhancha (structure) banane ke liye.\n*   **CSS:** Website ko design aur style dene ke liye.\n*   **JavaScript:** Website mein functionality (interactive buttons, animations) dalne ke liye.\n*   **Frameworks:** Baad mein aap React.js, Next.js ya PHP/Laravel seekh sakte hain.\n\n---\n\n### Website shuru karne ke liye 4 steps:\n\n1.  **Niche Chunein:** Aapki website kis baare mein hai? (Blog, Portfolio, Business, ya Shop?)\n2.  **Domain Name:** Ek chota aur yaad rehne wala naam sochen.\n3.  **Hosting:** Website ko internet par live karne ke liye hosting khareedein.\n4.  **Design & Content:** Apni website ka design banayein aur usmein images aur text dalein.\n\n**Aap mujhe ye bata dein:**\n*   Aap kis cheez ke liye website banana chahte hain?\n*   Kya aapko coding aati hai ya aap bina coding ke banana chahte hain?\n\nMain aapko step-by-step guide kar sakta hoon!",
+    "timestamp": "12:50 AM",
+    "modelUsed": "gemini-3.1-flash-lite",
+    "suggestedActions": [
+      "Summary",
+      "More Details"
+    ],
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8"
+  },
+  {
+    "id": "msg-1795247245902",
+    "conversationId": "conv-1795247245890",
+    "role": "user",
+    "content": "mujay website bana kard o travel ki",
+    "timestamp": "12:47 AM",
+    "modelUsed": "gemini-3.1-flash-lite",
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8"
+  },
+  {
+    "id": "msg-1795247245915",
+    "conversationId": "conv-1795247245890",
+    "role": "assistant",
+    "content": "### Offline AI Jawab: \"mujay website bana kard o travel ki\"\n\n**1. Bunyadi Khulasa:**\nAap ne **mujay website bana kard o travel ki** ke baray mein poocha hai. Offline Mode mein is topic ko samajhne aur apply karne ka behtareen tareeqa yeh hai ke isay 3 aham hisson mein taqseem kiya jaye:\n\n- **Bunyadi Tasawur (Core Concept):** Sab se pehle bunyadi maqsad aur aham terminologies clear karein.\n- **Amali Qadam (Practical Steps):** Chote aur qabil-e-amal targets set kar ke step-by-step kaam shuru karein.\n- **Behtareen Nateeja (Best Practice):** Jo seekha hai usay practical example ya notes ke sath verify karein.\n\n**Aap kya kar saktay hain:**\nAgar aap chahain to mujh se **code example**, **essay/report outline**, **math calculation**, ya **Urdu-English translation** maang saktay hain — sab kuch baghair internet ke kaam karta hai!",
+    "timestamp": "12:47 AM",
+    "modelUsed": "gemini-3.1-flash-lite",
+    "suggestedActions": [
+      "Summary",
+      "More Details"
+    ],
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8"
+  }
+]

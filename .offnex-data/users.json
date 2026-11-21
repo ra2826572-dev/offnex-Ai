@@ -1,0 +1,32 @@
+[
+  {
+    "id": "user-rizwan-ahmad",
+    "firstName": "Rizwan",
+    "lastName": "Ahmad",
+    "email": "rizwan@gmail.com",
+    "role": "user",
+    "passwordHash": "b31a1d098825045aefb03dea941499ff98c4648566ac72b07dd3471c9de80732",
+    "createdAt": "2026-11-10T12:00:00Z",
+    "lastLoginAt": "2026-11-21T08:18:57.958Z"
+  },
+  {
+    "id": "user-ra2826572",
+    "firstName": "Rizwan",
+    "lastName": "Ahmad",
+    "email": "ra2826572@gmail.com",
+    "role": "business_owner",
+    "passwordHash": "scrypt$d083b10273cb5e1097e7f13fddca0e5b$576879a2636f5775e2bd71f642f374fe2c8095cb3382a65f6dcc26a8efeb8ef325f32d8d8d66e9f464a9f21565c7909ba09a063b4b90057ca4923032acbf6ec7",
+    "createdAt": "2026-11-10T12:00:00Z",
+    "lastLoginAt": "2026-11-21T10:16:47.740Z"
+  },
+  {
+    "id": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "firstName": "Mushahidrafiqe744",
+    "lastName": "",
+    "email": "mushahidrafiqe744@gmail.com",
+    "role": "user",
+    "passwordHash": "scrypt$f925354155b2fb5004a7563dd04a6a36$cbd353950256808884365e6070f143765547cb0ebf3dbaaf56d05e0449ece569349bdbadcbf4fe65d8fde230a80d79fe56ca7fecfe2ff3932b1b93527ea96587",
+    "createdAt": "2026-11-21T08:19:45.650Z",
+    "lastLoginAt": "2026-11-21T10:16:27.488Z"
+  }
+]

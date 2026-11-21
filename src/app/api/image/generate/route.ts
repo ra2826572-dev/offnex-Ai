@@ -177,6 +177,36 @@ export async function POST(req: NextRequest) {
 
       clearTimeout(timeoutId);
       const updatedQuota = consumeImageQuota(userKey, result.images.length);
+      const savedRecordId = `imgrec-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      try {
+        const { saveBackendImageRecord } = await import('@/lib/backendDb');
+        const { getRequestUserMeta } = await import('@/lib/requestAuth');
+        const meta = getRequestUserMeta(req);
+        saveBackendImageRecord({
+          id: savedRecordId,
+          userId: String(body?.userId || meta.userId || userKey || 'anonymous'),
+          userEmail:
+            typeof body?.userEmail === 'string' && body.userEmail
+              ? body.userEmail
+              : meta.userEmail,
+          userName:
+            typeof body?.userName === 'string' && body.userName
+              ? body.userName
+              : meta.userName,
+          prompt: prompt.trim(),
+          style: (typeof style === 'string' ? style : 'Realistic Photography') as import('@/types').ImageStyle,
+          aspectRatio: validRatio,
+          quality: validQuality,
+          count: result.images.length,
+          modelUsed: result.modelUsed,
+          provider: result.provider,
+          images: result.images,
+          hasReferenceImage: Boolean(validReferenceImage),
+          createdAt: new Date().toISOString(),
+        });
+      } catch (saveErr) {
+        console.warn('[POST /api/image/generate] Backend image save notice:', saveErr);
+      }
       pushServerLog(
         'info',
         'image',
@@ -185,6 +215,7 @@ export async function POST(req: NextRequest) {
       );
       return NextResponse.json({
         ...result,
+        savedRecordId,
         quota: {
           remaining: updatedQuota.remaining,
           limit: updatedQuota.limit,

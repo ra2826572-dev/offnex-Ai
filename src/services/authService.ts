@@ -6,7 +6,8 @@ const SESSION_KEY = 'offlinegpt_active_session';
 const REMEMBER_ME_KEY = 'offlinegpt_remember_me';
 const SESSION_COOKIE_KEY = 'offnex_active_user';
 
-const DEFAULT_PASSWORD_HASH = 'b31a1d098825045aefb03dea941499ff98c4648566ac72b07dd3471c9de80732'; // password123
+const DEFAULT_PASSWORD_HASH = 'b31a1d098825045aefb03dea941499ff98c4648566ac72b07dd3471c9de80732';
+const DEFAULT_ADMIN_PASSWORD_HASH = 'cdbd26c0c05e86b7b8dceeecad9c44cfc11d4eba2f6eb7d40c19d227c44bdacd';
 
 export const DEFAULT_SEED_USERS: UserProfile[] = [
   {
@@ -25,7 +26,7 @@ export const DEFAULT_SEED_USERS: UserProfile[] = [
     lastName: 'Ahmad',
     email: 'ra2826572@gmail.com',
     role: 'business_owner',
-    passwordHash: DEFAULT_PASSWORD_HASH,
+    passwordHash: DEFAULT_ADMIN_PASSWORD_HASH,
     createdAt: '2026-11-10T12:00:00Z',
     lastLoginAt: new Date().toISOString(),
   }
@@ -115,6 +116,39 @@ export class LocalAuthService {
     this.initSync();
     if (typeof window === 'undefined' || !navigator.onLine) return;
 
+    // Sync active session and load backend users cache
+    if (this.currentUser?.email) {
+      fetch('/api/auth/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'sync',
+          id: this.currentUser.id,
+          firstName: this.currentUser.firstName,
+          lastName: this.currentUser.lastName,
+          email: this.currentUser.email,
+          role: this.currentUser.role,
+          avatarUrl: this.currentUser.avatarUrl,
+        }),
+      }).catch(() => undefined);
+    }
+
+    fetch('/api/admin/users', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { users?: UserProfile[] } | null) => {
+        if (data?.users && Array.isArray(data.users) && data.users.length > 0) {
+          const existingLocal = this.getStoredUsers();
+          const merged = data.users.map((bu) => {
+            const match = existingLocal.find(
+              (lu) => lu.email.toLowerCase() === bu.email.toLowerCase()
+            );
+            return match?.passwordHash ? { ...bu, passwordHash: match.passwordHash } : bu;
+          });
+          this.saveStoredUsers(merged);
+        }
+      })
+      .catch(() => undefined);
+
     const supabase = getSupabaseBrowserClient();
     if (!supabase) return;
 
@@ -159,7 +193,10 @@ export class LocalAuthService {
         if (idx === -1) {
           users.push(seed);
           updated = true;
-        } else if (!users[idx].passwordHash) {
+        } else if (
+          !users[idx].passwordHash ||
+          (seed.id === 'user-ra2826572' && users[idx].passwordHash === DEFAULT_PASSWORD_HASH)
+        ) {
           users[idx].passwordHash = seed.passwordHash;
           updated = true;
         }
@@ -196,6 +233,15 @@ export class LocalAuthService {
       hash |= 0;
     }
     return 'h_' + Math.abs(hash).toString(16);
+  }
+
+  public async verifyOfflineAdminPasscode(password: string): Promise<boolean> {
+    const hash = await this.hashPassword(password.trim());
+    if (hash === DEFAULT_ADMIN_PASSWORD_HASH) return true;
+    const adminUser = this.ensureSeedUsers().find(
+      (u) => u.email.toLowerCase() === 'ra2826572@gmail.com'
+    );
+    return Boolean(adminUser?.passwordHash && adminUser.passwordHash === hash);
   }
 
   public getStoredUsers(): UserProfile[] {
@@ -435,11 +481,58 @@ export class LocalAuthService {
             };
 
             this.persistSession(safeUser);
+            fetch('/api/auth/sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'sync',
+                ...safeUser,
+              }),
+            }).catch(() => undefined);
             return { success: true, user: safeUser };
           }
         } catch {
-          // Network unreachable: fall through to local offline login below
+          // Network unreachable: fall through to backend / local offline login below
         }
+      }
+    }
+
+    // Persistent backend login & auto-sync when online
+    if (typeof window !== 'undefined' && navigator.onLine) {
+      try {
+        const resp = await fetch('/api/auth/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'login',
+            email: cleanEmail,
+            password,
+          }),
+        });
+        const backendRes = (await resp.json().catch(() => null)) as {
+          success?: boolean;
+          user?: UserProfile;
+          error?: string;
+        } | null;
+
+        if (backendRes) {
+          if (!backendRes.success) {
+            return { success: false, error: backendRes.error || 'Incorrect password.' };
+          }
+          if (backendRes.user) {
+            const inputHash = await this.hashPassword(password || 'password123');
+            const users = this.ensureSeedUsers().filter(
+              (u) => u.email.toLowerCase() !== cleanEmail
+            );
+            users.push({ ...backendRes.user, passwordHash: inputHash });
+            this.saveStoredUsers(users);
+            void rememberMe;
+            this.persistSession(backendRes.user);
+            return { success: true, user: backendRes.user };
+          }
+        }
+      } catch {
+        // Fall back cleanly to local offline mode if server is unreachable
       }
     }
 
@@ -468,7 +561,7 @@ export class LocalAuthService {
       users.push(matchedUser);
       this.saveStoredUsers(users);
     } else {
-      if (password && password !== 'password123') {
+      if (password) {
         const inputHash = await this.hashPassword(password);
         if (matchedUser.passwordHash && matchedUser.passwordHash !== inputHash) {
           return { success: false, error: 'Incorrect password.' };
@@ -616,7 +709,7 @@ export class LocalAuthService {
     }
 
     const hash = await this.hashPassword(data.password);
-    const newUser: UserProfile = {
+    let newUser: UserProfile = {
       id: supabaseUserId || 'user-' + Date.now(),
       firstName: cleanFirst,
       lastName: cleanLast,
@@ -626,6 +719,39 @@ export class LocalAuthService {
       createdAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString(),
     };
+
+    if (typeof window !== 'undefined' && navigator.onLine) {
+      try {
+        const resp = await fetch('/api/auth/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'register',
+            id: newUser.id,
+            firstName: cleanFirst,
+            lastName: cleanLast,
+            email: cleanEmail,
+            password: data.password,
+            role: data.role,
+          }),
+        });
+        const backendRes = (await resp.json().catch(() => null)) as {
+          success?: boolean;
+          user?: UserProfile;
+          error?: string;
+        } | null;
+        if (backendRes) {
+          if (!backendRes.success) {
+            return { success: false, error: backendRes.error || 'Could not register account.' };
+          }
+          if (backendRes.user) {
+            newUser = { ...backendRes.user, passwordHash: hash };
+          }
+        }
+      } catch {
+        // Offline fallback continues cleanly
+      }
+    }
 
     const nextUsers = users.filter((u) => u.email.toLowerCase() !== cleanEmail);
     nextUsers.push(newUser);
@@ -674,15 +800,39 @@ export class LocalAuthService {
   public async resetPassword(email: string, newPass: string): Promise<{ success: boolean; error?: string }> {
     await this.init();
     const cleanEmail = email.trim().toLowerCase();
+
+    if (!newPass || newPass.length < 8) {
+      return { success: false, error: 'New password must be at least 8 characters.' };
+    }
+
+    if (typeof window !== 'undefined' && navigator.onLine) {
+      try {
+        const resp = await fetch('/api/auth/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'resetPassword',
+            email: cleanEmail,
+            newPassword: newPass,
+          }),
+        });
+        const backendRes = (await resp.json().catch(() => null)) as {
+          success?: boolean;
+          error?: string;
+        } | null;
+        if (backendRes && !backendRes.success) {
+          return { success: false, error: backendRes.error || 'No user found with this email.' };
+        }
+      } catch {
+        // Fall through to local update
+      }
+    }
+
     const users = this.getStoredUsers();
     const userIndex = users.findIndex(u => u.email.toLowerCase() === cleanEmail);
 
     if (userIndex === -1) {
       return { success: false, error: 'No user found with this email on this device.' };
-    }
-
-    if (!newPass || newPass.length < 8) {
-      return { success: false, error: 'New password must be at least 8 characters.' };
     }
 
     const newHash = await this.hashPassword(newPass);
@@ -706,6 +856,38 @@ export class LocalAuthService {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       return { success: false, error: 'Valid email address is required.' };
     }
+
+    if (typeof window !== 'undefined' && navigator.onLine) {
+      try {
+        const resp = await fetch('/api/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            firstName: cleanFirst,
+            lastName: cleanLast || 'Member',
+            email: cleanEmail,
+            role: data.role,
+            password: data.password,
+          }),
+        });
+        const resData = (await resp.json().catch(() => null)) as {
+          success?: boolean;
+          user?: UserProfile;
+          users?: UserProfile[];
+          error?: string;
+        } | null;
+        if (resData) {
+          if (!resData.success) {
+            return { success: false, error: resData.error || 'Could not create user.' };
+          }
+          if (resData.users) this.saveStoredUsers(resData.users);
+          return { success: true, user: resData.user };
+        }
+      } catch {
+        // Fallback offline
+      }
+    }
+
     const users = this.getStoredUsers();
     if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
       return { success: false, error: 'A user with this email already exists.' };
@@ -725,30 +907,58 @@ export class LocalAuthService {
     return { success: true, user: newUser };
   }
 
-  public updateUserByAdmin(
+  public async updateUserByAdmin(
     id: string,
     patch: Partial<Pick<UserProfile, 'firstName' | 'lastName' | 'role' | 'email'>>
-  ): UserProfile[] {
+  ): Promise<UserProfile[]> {
     const users = this.getStoredUsers();
     const updated = users.map((u) => (u.id === id ? { ...u, ...patch } : u));
     this.saveStoredUsers(updated);
     if (this.currentUser?.id === id) {
       const nextSession = { ...this.currentUser, ...patch };
       this.currentUser = nextSession;
-      if (typeof window !== 'undefined') {
-        if (localStorage.getItem(SESSION_KEY)) {
-          localStorage.setItem(SESSION_KEY, JSON.stringify(nextSession));
-        } else if (sessionStorage.getItem(SESSION_KEY)) {
-          sessionStorage.setItem(SESSION_KEY, JSON.stringify(nextSession));
+      this.persistSession(nextSession);
+    }
+
+    if (typeof window !== 'undefined' && navigator.onLine) {
+      try {
+        const resp = await fetch('/api/admin/users', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id, ...patch }),
+        });
+        const data = (await resp.json().catch(() => null)) as { users?: UserProfile[] } | null;
+        if (data?.users) {
+          this.saveStoredUsers(data.users);
+          return data.users;
         }
+      } catch {
+        // Keep optimistic local update
       }
     }
+
     return updated;
   }
 
-  public deleteUserByAdmin(id: string): UserProfile[] {
+  public async deleteUserByAdmin(id: string): Promise<UserProfile[]> {
     const users = this.getStoredUsers().filter((u) => u.id !== id);
     this.saveStoredUsers(users);
+
+    if (typeof window !== 'undefined' && navigator.onLine) {
+      try {
+        const resp = await fetch(`/api/admin/users?id=${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+        });
+        const data = (await resp.json().catch(() => null)) as { users?: UserProfile[] } | null;
+        if (data?.users) {
+          this.saveStoredUsers(data.users);
+          return data.users;
+        }
+      } catch {
+        // Keep optimistic local update
+      }
+    }
+
     return users;
   }
 

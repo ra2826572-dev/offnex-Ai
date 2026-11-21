@@ -1,0 +1,10 @@
+{
+  "defaultChatModel": "gemini-3.1-flash-lite",
+  "defaultImageModel": "gemini-2.5-flash-image",
+  "highQualityImageModel": "gemini-2.5-flash-image",
+  "imageRateLimitMax": 10,
+  "imageRateLimitWindowMinutes": 1440,
+  "maintenanceMode": false,
+  "allowLocalFallback": true,
+  "ollamaHost": "http://localhost:11434"
+}

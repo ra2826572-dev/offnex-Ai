@@ -25,6 +25,16 @@ import {
   recordDailyImageUsage,
   DAILY_IMAGE_LIMIT,
 } from '../services/imageService';
+import {
+  deleteConversationOnBackend,
+  deleteImageRecordOnBackend,
+  fetchUserChatsFromBackend,
+  fetchUserImagesFromBackend,
+  syncConversationToBackend,
+  syncDocumentToBackend,
+  syncImageRecordToBackend,
+  syncSettingsToBackend,
+} from '../services/backendSync';
 
 import { DesktopHeader } from './DesktopHeader';
 import { Sidebar } from './Sidebar';
@@ -149,11 +159,55 @@ export function OfflineGptWorkspace() {
       setSettings(loadedSettings);
       setLanguage(loadedSettings.language);
 
-      const convs = await db.getConversations();
-      setConversations(convs);
-      if (convs.length > 0) {
-        setActiveConversationId(convs[0].id);
-        const msgs = await db.getMessages(convs[0].id);
+      const allLocalConvs = await db.getConversations();
+      const uid = syncedUser?.id;
+      const scopedLocalConvs = uid
+        ? allLocalConvs.filter((c) => !c.userId || c.userId === uid)
+        : allLocalConvs;
+
+      let mergedConvs = scopedLocalConvs;
+      if (uid) {
+        const backendChats = await fetchUserChatsFromBackend(uid);
+        if (backendChats) {
+          const convMap = new Map<string, Conversation>();
+          for (const c of scopedLocalConvs) convMap.set(c.id, c);
+          for (const c of backendChats.conversations) {
+            const existing = convMap.get(c.id);
+            if (!existing || new Date(c.updatedAt) >= new Date(existing.updatedAt)) {
+              convMap.set(c.id, c);
+              await db.saveConversation(c);
+            }
+          }
+          for (const m of backendChats.messages) {
+            await db.saveMessage(m);
+          }
+          // Push any local-only chats to backend
+          const backendIds = new Set(backendChats.conversations.map((c) => c.id));
+          for (const localConv of scopedLocalConvs) {
+            if (!backendIds.has(localConv.id)) {
+              const localMsgs = await db.getMessages(localConv.id);
+              const taggedConv: Conversation = {
+                ...localConv,
+                userId: localConv.userId || uid,
+                userEmail: localConv.userEmail || syncedUser?.email,
+              };
+              await db.saveConversation(taggedConv);
+              void syncConversationToBackend(
+                taggedConv,
+                localMsgs.map((m) => ({ ...m, userId: m.userId || uid }))
+              );
+            }
+          }
+          mergedConvs = Array.from(convMap.values()).sort(
+            (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+          );
+        }
+      }
+
+      setConversations(mergedConvs);
+      if (mergedConvs.length > 0) {
+        setActiveConversationId(mergedConvs[0].id);
+        const msgs = await db.getMessages(mergedConvs[0].id);
         setMessages(msgs);
       }
 
@@ -170,21 +224,102 @@ export function OfflineGptWorkspace() {
       setIsOllamaConnected(status.connected);
 
       if (syncedUser?.id) {
-        const imgs = await db.getImageHistory(syncedUser.id);
-        setImageHistory(imgs);
+        const localImgs = await db.getImageHistory(syncedUser.id);
+        const backendImgs = await fetchUserImagesFromBackend(syncedUser.id);
+        if (backendImgs) {
+          const imgMap = new Map<string, GeneratedImageRecord>();
+          for (const rec of localImgs) imgMap.set(rec.id, rec);
+          for (const rec of backendImgs) {
+            if (!imgMap.has(rec.id)) {
+              imgMap.set(rec.id, rec);
+              await db.saveImageRecord(rec);
+            }
+          }
+          const backendImgIds = new Set(backendImgs.map((r) => r.id));
+          for (const rec of localImgs) {
+            if (!backendImgIds.has(rec.id)) {
+              void syncImageRecordToBackend({
+                ...rec,
+                userEmail: rec.userEmail || syncedUser.email,
+                userName:
+                  rec.userName ||
+                  [syncedUser.firstName, syncedUser.lastName].filter(Boolean).join(' ').trim(),
+              });
+            }
+          }
+          const mergedImgs = Array.from(imgMap.values()).sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          );
+          setImageHistory(mergedImgs);
+        } else {
+          setImageHistory(localImgs);
+        }
       }
     }
 
     loadData();
   }, []);
 
-  // Keep user-scoped image history synced on auth change
+  // Keep user-scoped chats and image history synced on auth change
   useEffect(() => {
     if (!currentUser?.id) {
       setImageHistory([]);
+      setConversations([]);
+      setMessages([]);
+      setActiveConversationId(null);
       return;
     }
-    db.init().then(() => db.getImageHistory(currentUser.id)).then(setImageHistory);
+    const uid = currentUser.id;
+    db.init().then(async () => {
+      const localImgs = await db.getImageHistory(uid);
+      const backendImgs = await fetchUserImagesFromBackend(uid);
+      if (backendImgs) {
+        const map = new Map<string, GeneratedImageRecord>();
+        for (const r of localImgs) map.set(r.id, r);
+        for (const r of backendImgs) {
+          if (!map.has(r.id)) {
+            map.set(r.id, r);
+            await db.saveImageRecord(r);
+          }
+        }
+        setImageHistory(
+          Array.from(map.values()).sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+          )
+        );
+      } else {
+        setImageHistory(localImgs);
+      }
+
+      const localConvs = (await db.getConversations()).filter(
+        (c) => !c.userId || c.userId === uid
+      );
+      const backendChats = await fetchUserChatsFromBackend(uid);
+      if (backendChats) {
+        const cMap = new Map<string, Conversation>();
+        for (const c of localConvs) cMap.set(c.id, c);
+        for (const c of backendChats.conversations) {
+          cMap.set(c.id, c);
+          await db.saveConversation(c);
+        }
+        for (const m of backendChats.messages) {
+          await db.saveMessage(m);
+        }
+        const merged = Array.from(cMap.values()).sort(
+          (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
+        setConversations(merged);
+        if (merged.length > 0) {
+          setActiveConversationId(merged[0].id);
+          setMessages(await db.getMessages(merged[0].id));
+        } else {
+          setActiveConversationId(null);
+          setMessages([]);
+        }
+      } else {
+        setConversations(localConvs);
+      }
+    });
   }, [currentUser?.id]);
 
   // Sync conversation selection
@@ -196,8 +331,14 @@ export function OfflineGptWorkspace() {
 
   const handleNewConversation = async () => {
     const newConvId = 'conv-' + Date.now();
+    const userName = currentUser
+      ? [currentUser.firstName, currentUser.lastName].filter(Boolean).join(' ').trim()
+      : undefined;
     const newConv: Conversation = {
       id: newConvId,
+      userId: currentUser?.id,
+      userEmail: currentUser?.email,
+      userName,
       title: 'New Offline Chat',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -206,6 +347,7 @@ export function OfflineGptWorkspace() {
       messagesCount: 0,
     };
     await db.saveConversation(newConv);
+    void syncConversationToBackend(newConv);
     setConversations((prev) => [newConv, ...prev]);
     setActiveConversationId(newConvId);
     setMessages([]);
@@ -214,6 +356,7 @@ export function OfflineGptWorkspace() {
 
   const handleDeleteConversation = async (id: string) => {
     await db.deleteConversation(id);
+    void deleteConversationOnBackend(id);
     setConversations((prev) => prev.filter((c) => c.id !== id));
     if (activeConversationId === id) {
       const remaining = conversations.filter((c) => c.id !== id);
@@ -318,12 +461,18 @@ export function OfflineGptWorkspace() {
       }
     }
 
+    const ownerName = currentUser
+      ? [currentUser.firstName, currentUser.lastName].filter(Boolean).join(' ').trim()
+      : undefined;
     let convId = activeConversationId;
     let createdConv: Conversation | null = null;
     if (!convId) {
       convId = 'conv-' + Date.now();
       createdConv = {
         id: convId,
+        userId: currentUser?.id,
+        userEmail: currentUser?.email,
+        userName: ownerName,
         title: text.slice(0, 32),
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -341,6 +490,7 @@ export function OfflineGptWorkspace() {
     const userMsg: Message = {
       id: 'msg-' + Date.now(),
       conversationId: convId,
+      userId: currentUser?.id,
       role: 'user',
       content: text,
       timestamp: timeString,
@@ -349,6 +499,7 @@ export function OfflineGptWorkspace() {
 
     setMessages((prev) => [...prev, userMsg]);
     await db.saveMessage(userMsg);
+    void syncConversationToBackend(createdConv || undefined, [userMsg]);
 
     setIsGenerating(true);
 
@@ -391,6 +542,7 @@ export function OfflineGptWorkspace() {
       const finalAssistantMsg: Message = {
         id: assistantMsgId,
         conversationId: convId,
+        userId: currentUser?.id,
         role: 'assistant',
         content: response.text,
         timestamp: timeString,
@@ -408,14 +560,20 @@ export function OfflineGptWorkspace() {
 
       const currentConv = createdConv || conversations.find((c) => c.id === convId);
       if (currentConv) {
-        const updated = {
+        const updated: Conversation = {
           ...currentConv,
+          userId: currentConv.userId || currentUser?.id,
+          userEmail: currentConv.userEmail || currentUser?.email,
+          userName: currentConv.userName || ownerName,
           title: currentConv.title === 'New Offline Chat' ? text.slice(0, 32) : currentConv.title,
           updatedAt: new Date().toISOString(),
           messagesCount: (currentConv.messagesCount || 0) + (createdConv ? 1 : 2),
         };
         await db.saveConversation(updated);
         setConversations((prev) => prev.map((c) => (c.id === convId ? updated : c)));
+        void syncConversationToBackend(updated, [userMsg, finalAssistantMsg]);
+      } else {
+        void syncConversationToBackend(undefined, [finalAssistantMsg]);
       }
     } finally {
       setIsGenerating(false);
@@ -490,15 +648,22 @@ export function OfflineGptWorkspace() {
       return;
     }
 
+    const ownerName = currentUser
+      ? [currentUser.firstName, currentUser.lastName].filter(Boolean).join(' ').trim()
+      : undefined;
     setLastImageError(null);
     let convId = activeConversationId;
     let newlyCreatedConv: Conversation | null = null;
+    let chatUserMsg: Message | null = null;
 
     if (addToChat) {
       if (!convId) {
         convId = 'conv-' + Date.now();
         newlyCreatedConv = {
           id: convId,
+          userId: currentUser?.id,
+          userEmail: currentUser?.email,
+          userName: ownerName,
           title: (displayUserMessage || `Image: ${payload.prompt}`).slice(0, 28),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -515,9 +680,10 @@ export function OfflineGptWorkspace() {
       }
 
       const timeString = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const userMsg: Message = {
+      chatUserMsg = {
         id: 'msg-' + Date.now(),
         conversationId: convId,
+        userId: currentUser?.id,
         role: 'user',
         content: displayUserMessage || `Generate image: ${payload.prompt}`,
         timestamp: timeString,
@@ -539,8 +705,9 @@ export function OfflineGptWorkspace() {
           : undefined,
       };
 
-      setMessages((prev) => [...prev, userMsg]);
-      await db.saveMessage(userMsg);
+      setMessages((prev) => [...prev, chatUserMsg!]);
+      await db.saveMessage(chatUserMsg);
+      void syncConversationToBackend(newlyCreatedConv || undefined, [chatUserMsg]);
     }
 
     setIsGeneratingImage(true);
@@ -557,6 +724,8 @@ export function OfflineGptWorkspace() {
           ? { data: payload.referenceImage.data, mimeType: payload.referenceImage.mimeType }
           : undefined,
         userId: uid,
+        userEmail: currentUser?.email,
+        userName: ownerName,
         offlineStrict: settings.offlineStrict,
       });
 
@@ -565,6 +734,7 @@ export function OfflineGptWorkspace() {
         const assistantMsg: Message = {
           id: 'msg-' + (Date.now() + 1),
           conversationId: convId,
+          userId: currentUser?.id,
           role: 'assistant',
           content: result.textNote || '',
           timestamp: timeString,
@@ -587,6 +757,9 @@ export function OfflineGptWorkspace() {
         if (targetConv) {
           const updated: Conversation = {
             ...targetConv,
+            userId: targetConv.userId || currentUser?.id,
+            userEmail: targetConv.userEmail || currentUser?.email,
+            userName: targetConv.userName || ownerName,
             title:
               targetConv.title === 'New Offline Chat'
                 ? `Image: ${payload.prompt.slice(0, 26)}`
@@ -596,12 +769,20 @@ export function OfflineGptWorkspace() {
           };
           await db.saveConversation(updated);
           setConversations((prev) => prev.map((c) => (c.id === convId ? updated : c)));
+          void syncConversationToBackend(
+            updated,
+            chatUserMsg ? [chatUserMsg, assistantMsg] : [assistantMsg]
+          );
+        } else {
+          void syncConversationToBackend(undefined, [assistantMsg]);
         }
       }
 
       const historyRecord: GeneratedImageRecord = {
-        id: 'imgrec-' + Date.now(),
+        id: result.savedRecordId || 'imgrec-' + Date.now(),
         userId: uid,
+        userEmail: currentUser?.email,
+        userName: ownerName,
         conversationId: addToChat ? convId || undefined : undefined,
         prompt: payload.prompt,
         style: payload.style,
@@ -615,6 +796,7 @@ export function OfflineGptWorkspace() {
         createdAt: new Date().toISOString(),
       };
       await db.saveImageRecord(historyRecord);
+      void syncImageRecordToBackend(historyRecord);
       setImageHistory((prev) => [historyRecord, ...prev]);
       recordDailyImageUsage(uid, result.images.length);
       setDailyUsageTick((t) => t + 1);
@@ -672,13 +854,20 @@ export function OfflineGptWorkspace() {
   const handleDeleteImageHistory = async (id: string) => {
     const uid = currentUser?.id || 'anonymous';
     await db.deleteImageRecord(id, uid);
+    void deleteImageRecordOnBackend(id, uid);
     setImageHistory((prev) => prev.filter((item) => item.id !== id));
   };
 
   // File Upload & Chat Analysis
   const handleUploadFile = async (file: File) => {
-    const doc = await documentProcessor.processFile(file);
+    const rawDoc = await documentProcessor.processFile(file);
+    const doc: StoredDocument = {
+      ...rawDoc,
+      userId: currentUser?.id,
+      userEmail: currentUser?.email,
+    };
     await db.saveDocument(doc);
+    void syncDocumentToBackend(doc);
     setDocuments((prev) => [doc, ...prev]);
     setActiveTab('chat');
     handleSendMessage(
@@ -715,6 +904,7 @@ export function OfflineGptWorkspace() {
     const updated = { ...settings, language: newLang };
     setSettings(updated);
     await db.saveSettings(updated);
+    void syncSettingsToBackend(updated);
   };
 
   // Toggle Offline Mode vs Online Mode from header / quick switch
@@ -722,6 +912,7 @@ export function OfflineGptWorkspace() {
     const updated = { ...settings, offlineStrict: !settings.offlineStrict };
     setSettings(updated);
     await db.saveSettings(updated);
+    void syncSettingsToBackend(updated);
     setLastImageError(null);
   };
 
@@ -730,6 +921,7 @@ export function OfflineGptWorkspace() {
     const updated = { ...settings, offlineStrict: false };
     setSettings(updated);
     await db.saveSettings(updated);
+    void syncSettingsToBackend(updated);
     setLastImageError(null);
   };
 
@@ -1009,6 +1201,7 @@ export function OfflineGptWorkspace() {
               onUpdateSettings={async (s) => {
                 setSettings(s);
                 await db.saveSettings(s);
+                void syncSettingsToBackend(s);
               }}
               onOpenModelManager={() => setIsModelManagerOpen(true)}
               language={language}

@@ -1,0 +1,62 @@
+[
+  {
+    "id": "conv-1795247245890",
+    "title": "mujay website bana kard o travel",
+    "createdAt": "2026-11-21T07:47:25.890Z",
+    "updatedAt": "2026-11-21T08:19:46.899Z",
+    "modelName": "gemini-3.1-flash-lite",
+    "language": "en",
+    "messagesCount": 2,
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "conv-1795247404188",
+    "title": "ma na website banani ha",
+    "createdAt": "2026-11-21T07:50:04.188Z",
+    "updatedAt": "2026-11-21T08:19:46.909Z",
+    "modelName": "gemini-3.1-flash-lite",
+    "language": "en",
+    "messagesCount": 2,
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "conv-1795247427323",
+    "title": "New Offline Chat",
+    "createdAt": "2026-11-21T07:50:27.323Z",
+    "updatedAt": "2026-11-21T07:50:27.323Z",
+    "modelName": "gemini-3.1-flash-lite",
+    "language": "en",
+    "messagesCount": 0,
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "conv-1795247430763",
+    "title": "New Offline Chat",
+    "createdAt": "2026-11-21T07:50:30.763Z",
+    "updatedAt": "2026-11-21T07:50:30.763Z",
+    "modelName": "gemini-3.1-flash-lite",
+    "language": "en",
+    "messagesCount": 0,
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  },
+  {
+    "id": "conv-1795248053093",
+    "title": "kia hall ha",
+    "createdAt": "2026-11-21T08:00:53.093Z",
+    "updatedAt": "2026-11-21T08:19:46.928Z",
+    "modelName": "gemini-3.1-flash-lite",
+    "language": "en",
+    "messagesCount": 2,
+    "userId": "37cca682-9ff0-4221-9d12-04e18113c0c8",
+    "userEmail": "mushahidrafiqe744@gmail.com",
+    "userName": "Mushahidrafiqe744"
+  }
+]

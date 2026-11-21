@@ -121,7 +121,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
 
   // Images state
   const [imgSearch, setImgSearch] = useState('');
-  const [imgProviderFilter, setImgProviderFilter] = useState<'all' | 'gemini' | 'openai' | 'local'>('all');
+  const [imgProviderFilter, setImgProviderFilter] = useState<'all' | 'gemini' | 'openai' | 'local' | 'pinterest'>('all');
   const [previewImg, setPreviewImg] = useState<{ url: string; prompt: string; model: string } | null>(null);
 
   // Models / API config state
@@ -129,6 +129,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const [configDraft, setConfigDraft] = useState<AdminRuntimeConfig | null>(null);
   const [configSavedNotice, setConfigSavedNotice] = useState<string | null>(null);
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
 
   // Settings state
   const [settingsSavedMsg, setSettingsSavedMsg] = useState<string | null>(null);
@@ -240,6 +241,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
                 <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-slate-400 bg-[#0B0E1C]">
                   <th className="py-3 px-4 font-semibold">User</th>
                   <th className="py-3 px-4 font-semibold">Role</th>
+                  <th className="py-3 px-4 font-semibold">Usage</th>
                   <th className="py-3 px-4 font-semibold">Created</th>
                   <th className="py-3 px-4 font-semibold">Last Active</th>
                   <th className="py-3 px-4 font-semibold text-right">Actions</th>
@@ -248,54 +250,66 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
               <tbody className="divide-y divide-white/5 text-sm">
                 {filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-10 text-center text-slate-400 text-sm">
+                    <td colSpan={6} className="py-10 text-center text-slate-400 text-sm">
                       No matching users found.
                     </td>
                   </tr>
                 ) : (
-                  filteredUsers.map((u) => (
-                    <tr key={u.id} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#7547FF] to-[#3B82F6] text-white font-bold text-sm flex items-center justify-center shrink-0">
-                            {getInitials(u.firstName, 'U')}
+                  filteredUsers.map((u) => {
+                    const emailLow = u.email.toLowerCase();
+                    const uChats = conversations.filter(
+                      (c) => c.userId === u.id || c.userEmail?.toLowerCase() === emailLow
+                    ).length;
+                    const uImgs = images.filter(
+                      (img) => img.userId === u.id || img.userEmail?.toLowerCase() === emailLow
+                    ).length;
+                    return (
+                      <tr key={u.id} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#7547FF] to-[#3B82F6] text-white font-bold text-sm flex items-center justify-center shrink-0">
+                              {getInitials(u.firstName, 'U')}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-semibold text-white truncate">
+                                {u.firstName} {u.lastName}
+                              </p>
+                              <p className="text-xs text-slate-400 truncate">{u.email}</p>
+                            </div>
                           </div>
-                          <div className="min-w-0">
-                            <p className="font-semibold text-white truncate">
-                              {u.firstName} {u.lastName}
-                            </p>
-                            <p className="text-xs text-slate-400 truncate">{u.email}</p>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <select
-                          value={u.role}
-                          onChange={(e) => onUpdateUserRole(u.id, e.target.value as UserRole)}
-                          className="bg-[#090C18] border border-white/10 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-200 focus:outline-none focus:border-[#7547FF] cursor-pointer"
-                        >
-                          <option value="user">User</option>
-                          <option value="business_owner">Business Owner</option>
-                        </select>
-                      </td>
-                      <td className="py-3 px-4 text-xs text-slate-400 font-mono tabular-nums">
-                        {new Date(u.createdAt).toLocaleDateString()}
-                      </td>
-                      <td className="py-3 px-4 text-xs text-slate-400 font-mono tabular-nums">
-                        {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <button
-                          type="button"
-                          onClick={() => onDeleteUser(u.id)}
-                          title="Delete User"
-                          className="inline-flex items-center justify-center p-2 rounded-lg text-rose-400 hover:bg-rose-500/15 transition cursor-pointer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+                        <td className="py-3 px-4">
+                          <select
+                            value={u.role}
+                            onChange={(e) => onUpdateUserRole(u.id, e.target.value as UserRole)}
+                            className="bg-[#090C18] border border-white/10 rounded-lg px-2.5 py-1 text-xs font-medium text-slate-200 focus:outline-none focus:border-[#7547FF] cursor-pointer"
+                          >
+                            <option value="user">User</option>
+                            <option value="business_owner">Business Owner</option>
+                          </select>
+                        </td>
+                        <td className="py-3 px-4 text-xs text-slate-300 font-mono tabular-nums whitespace-nowrap">
+                          {uChats} chats · {uImgs} imgs
+                        </td>
+                        <td className="py-3 px-4 text-xs text-slate-400 font-mono tabular-nums">
+                          {new Date(u.createdAt).toLocaleDateString()}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-slate-400 font-mono tabular-nums">
+                          {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleString() : 'Never'}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => onDeleteUser(u.id)}
+                            title="Delete User"
+                            className="inline-flex items-center justify-center p-2 rounded-lg text-rose-400 hover:bg-rose-500/15 transition cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -458,6 +472,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
               <thead>
                 <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-slate-400 bg-[#0B0E1C]">
                   <th className="py-3 px-4 font-semibold">Conversation Title</th>
+                  <th className="py-3 px-4 font-semibold">Owner</th>
                   <th className="py-3 px-4 font-semibold">Model</th>
                   <th className="py-3 px-4 font-semibold">Messages</th>
                   <th className="py-3 px-4 font-semibold">Updated</th>
@@ -467,16 +482,20 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
               <tbody className="divide-y divide-white/5 text-sm">
                 {filteredConvs.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-10 text-center text-slate-400">
+                    <td colSpan={6} className="py-10 text-center text-slate-400">
                       No conversations match your search.
                     </td>
                   </tr>
                 ) : (
                   filteredConvs.map((conv) => {
                     const actualCount = messages.filter((m) => m.conversationId === conv.id).length || conv.messagesCount;
+                    const ownerLabel = conv.userName || conv.userEmail || conv.userId || 'User';
                     return (
                       <tr key={conv.id} className="hover:bg-white/[0.02]">
                         <td className="py-3 px-4 font-medium text-white">{conv.title}</td>
+                        <td className="py-3 px-4 text-xs text-slate-300 truncate max-w-[180px]">
+                          {ownerLabel}
+                        </td>
                         <td className="py-3 px-4 text-xs text-slate-300 font-mono">{conv.modelName}</td>
                         <td className="py-3 px-4 text-xs text-slate-300 font-mono tabular-nums">{actualCount}</td>
                         <td className="py-3 px-4 text-xs text-slate-400 font-mono tabular-nums">
@@ -551,7 +570,21 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
                         <span className="uppercase font-semibold text-indigo-300">{msg.role}</span>
                         <span>{msg.timestamp}</span>
                       </div>
-                      <p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content || '(Image generation output)'}</p>
+                      {msg.content && (
+                        <p className="whitespace-pre-wrap break-words leading-relaxed">{msg.content}</p>
+                      )}
+                      {msg.imageGeneration?.images && msg.imageGeneration.images.length > 0 && (
+                        <div className="mt-2.5 grid grid-cols-2 gap-2">
+                          {msg.imageGeneration.images.map((im) => (
+                            <img
+                              key={im.id}
+                              src={im.dataUrl}
+                              alt={msg.imageGeneration?.prompt || 'Generated'}
+                              className="w-full max-h-48 object-cover rounded-lg border border-white/10"
+                            />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -597,7 +630,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
             />
           </div>
           <div className="inline-flex bg-[#101426] border border-white/10 rounded-xl p-1 gap-1 shrink-0 overflow-x-auto">
-            {(['all', 'gemini', 'openai', 'local'] as const).map((p) => (
+            {(['all', 'gemini', 'openai', 'local', 'pinterest'] as const).map((p) => (
               <button
                 key={p}
                 type="button"
@@ -624,6 +657,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredImgs.map((rec) => {
               const firstImg = rec.images[0]?.dataUrl;
+              const ownerText = rec.userEmail || rec.userName || rec.userId;
               return (
                 <div
                   key={rec.id}
@@ -642,14 +676,14 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
                       </div>
                     )}
                     <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/65 border border-white/10 text-[10px] font-mono uppercase text-slate-200">
-                      {rec.provider} · {rec.aspectRatio}
+                      {rec.modelUsed} · {rec.aspectRatio}
                     </div>
                   </div>
                   <div className="p-3.5 flex-1 flex flex-col justify-between gap-3">
                     <div>
                       <p className="text-xs font-medium text-white line-clamp-2">{rec.prompt}</p>
-                      <p className="text-[11px] text-slate-400 mt-1 font-mono tabular-nums">
-                        {rec.style} · {new Date(rec.createdAt).toLocaleDateString()}
+                      <p className="text-[11px] text-slate-400 mt-1 font-mono tabular-nums truncate">
+                        {ownerText} · {rec.style} · {new Date(rec.createdAt).toLocaleDateString()}
                       </p>
                     </div>
                     <div className="flex items-center justify-between pt-2 border-t border-white/5">
@@ -921,7 +955,8 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
               type="button"
               onClick={async () => {
                 const ok = await onSaveRuntimeConfig(activeConfig);
-                setConfigSavedNotice(ok ? 'Configuration saved live' : 'Failed to save configuration');
+                if (ok) setConfigDraft(null);
+                setConfigSavedNotice(ok ? 'Configuration saved to backend' : 'Failed to save configuration');
                 setTimeout(() => setConfigSavedNotice(null), 3000);
               }}
               className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#7547FF] to-[#5B32E5] text-white text-xs font-semibold hover:brightness-110 cursor-pointer"
@@ -938,12 +973,23 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
   if (section === 'settings') {
     const handleToggleSetting = async <K extends keyof AppSettings>(key: K, val: AppSettings[K]) => {
       await onUpdateAppSettings({ ...appSettings, [key]: val });
-      setSettingsSavedMsg('Saved to IndexedDB');
+      setSettingsSavedMsg('Saved to backend');
       setTimeout(() => setSettingsSavedMsg(null), 2000);
     };
 
     const handleBackupDownload = async () => {
-      const json = await db.exportFullBackup();
+      let json = '';
+      try {
+        const res = await fetch('/api/admin/backup', { cache: 'no-store' });
+        if (res.ok) {
+          json = await res.text();
+        }
+      } catch {
+        // Fallback offline
+      }
+      if (!json) {
+        json = await db.exportFullBackup();
+      }
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -962,7 +1008,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
               System Settings
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Global application defaults stored locally in browser IndexedDB.
+              Global application defaults saved in backend database and synced locally.
             </p>
           </div>
           {settingsSavedMsg && (
@@ -1097,7 +1143,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
             Platform Analytics & Hardware Telemetry
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Live breakdown of client IndexedDB storage, message roles, image providers, and Node host resources.
+            Live breakdown of persistent backend storage across all users, message roles, image providers, and Node host resources.
           </p>
         </div>
 
@@ -1159,7 +1205,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
               <HardDrive className="w-4 h-4 text-emerald-400" /> Image Providers Used
             </div>
             <div className="space-y-2 text-xs">
-              {(['gemini', 'openai', 'local'] as const).map((p) => (
+              {(['gemini', 'openai', 'local', 'pinterest'] as const).map((p) => (
                 <div key={p} className="flex justify-between text-slate-300">
                   <span className="capitalize">{p}</span>
                   <span className="font-mono tabular-nums">{providerCounts[p] || 0} images</span>
@@ -1170,6 +1216,56 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
                 <span className="font-mono tabular-nums text-white font-semibold">{images.length}</span>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Per-User Backend Usage Table */}
+        <div className="rounded-2xl bg-[#101426] border border-white/10 overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-white/10 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white">Per-User Backend Activity</h3>
+            <span className="text-xs text-slate-400 font-mono">{users.length} users</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse min-w-[540px]">
+              <thead>
+                <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-slate-400 bg-[#0B0E1C]">
+                  <th className="py-2.5 px-4 font-semibold">User</th>
+                  <th className="py-2.5 px-4 font-semibold">Role</th>
+                  <th className="py-2.5 px-4 font-semibold">Chats</th>
+                  <th className="py-2.5 px-4 font-semibold">Messages</th>
+                  <th className="py-2.5 px-4 font-semibold">Images</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-xs">
+                {users.map((u) => {
+                  const emailLow = u.email.toLowerCase();
+                  const uChats = conversations.filter(
+                    (c) => c.userId === u.id || c.userEmail?.toLowerCase() === emailLow
+                  );
+                  const convIdSet = new Set(uChats.map((c) => c.id));
+                  const uMsgs = messages.filter(
+                    (m) => m.userId === u.id || convIdSet.has(m.conversationId)
+                  ).length;
+                  const uImgs = images
+                    .filter((img) => img.userId === u.id || img.userEmail?.toLowerCase() === emailLow)
+                    .reduce((acc, rec) => acc + Math.max(1, rec.images.length), 0);
+                  return (
+                    <tr key={u.id} className="hover:bg-white/[0.02]">
+                      <td className="py-2.5 px-4 text-white font-medium">
+                        {u.firstName} {u.lastName}{' '}
+                        <span className="text-slate-400 font-normal">({u.email})</span>
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-300 capitalize">
+                        {u.role.replace('_', ' ')}
+                      </td>
+                      <td className="py-2.5 px-4 text-slate-300 font-mono tabular-nums">{uChats.length}</td>
+                      <td className="py-2.5 px-4 text-slate-300 font-mono tabular-nums">{uMsgs}</td>
+                      <td className="py-2.5 px-4 text-slate-300 font-mono tabular-nums">{uImgs}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1335,51 +1431,86 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
           {filteredTickets.map((t) => (
             <div
               key={t.id}
-              className="rounded-2xl bg-[#101426] border border-white/10 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+              className="rounded-2xl bg-[#101426] border border-white/10 p-4 flex flex-col gap-3"
             >
-              <div className="min-w-0 space-y-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-bold text-white">{t.subject}</span>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
-                      t.priority === 'high'
-                        ? 'bg-rose-500/20 text-rose-300'
-                        : t.priority === 'medium'
-                        ? 'bg-amber-500/20 text-amber-300'
-                        : 'bg-sky-500/20 text-sky-300'
-                    }`}
-                  >
-                    {t.priority}
-                  </span>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-bold text-white">{t.subject}</span>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase ${
+                        t.priority === 'high'
+                          ? 'bg-rose-500/20 text-rose-300'
+                          : t.priority === 'medium'
+                          ? 'bg-amber-500/20 text-amber-300'
+                          : 'bg-sky-500/20 text-sky-300'
+                      }`}
+                    >
+                      {t.priority}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300">{t.message}</p>
+                  <p className="text-[11px] text-slate-500 font-mono">
+                    {t.userName} ({t.userEmail}) · {new Date(t.createdAt).toLocaleString()}
+                  </p>
+                  {t.adminReply && (
+                    <p className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-2.5 py-1.5 mt-1">
+                      Reply: {t.adminReply}
+                    </p>
+                  )}
                 </div>
-                <p className="text-xs text-slate-300">{t.message}</p>
-                <p className="text-[11px] text-slate-500 font-mono">
-                  {t.userName} ({t.userEmail}) · {new Date(t.createdAt).toLocaleString()}
-                </p>
+                <div className="flex items-center gap-2 shrink-0">
+                  <select
+                    value={t.status}
+                    onChange={(e) =>
+                      onSaveTicket({
+                        ...t,
+                        status: e.target.value as SupportTicket['status'],
+                        updatedAt: new Date().toISOString(),
+                      })
+                    }
+                    className="bg-[#090C18] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white cursor-pointer"
+                  >
+                    <option value="open">Open</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => onDeleteTicket(t.id)}
+                    className="p-2 rounded-lg text-rose-400 hover:bg-rose-500/15 cursor-pointer"
+                    title="Delete ticket"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <select
-                  value={t.status}
+
+              <div className="flex items-center gap-2 pt-2 border-t border-white/5">
+                <input
+                  type="text"
+                  value={replyDrafts[t.id] ?? t.adminReply ?? ''}
                   onChange={(e) =>
-                    onSaveTicket({
-                      ...t,
-                      status: e.target.value as SupportTicket['status'],
-                      updatedAt: new Date().toISOString(),
-                    })
+                    setReplyDrafts((prev) => ({ ...prev, [t.id]: e.target.value }))
                   }
-                  className="bg-[#090C18] border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white cursor-pointer"
-                >
-                  <option value="open">Open</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="resolved">Resolved</option>
-                </select>
+                  placeholder="Write an admin reply..."
+                  className="flex-1 bg-[#090C18] border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-[#7547FF]"
+                />
                 <button
                   type="button"
-                  onClick={() => onDeleteTicket(t.id)}
-                  className="p-2 rounded-lg text-rose-400 hover:bg-rose-500/15 cursor-pointer"
-                  title="Delete ticket"
+                  onClick={async () => {
+                    const reply = (replyDrafts[t.id] ?? t.adminReply ?? '').trim();
+                    if (!reply) return;
+                    await onSaveTicket({
+                      ...t,
+                      adminReply: reply,
+                      status: t.status === 'open' ? 'in_progress' : t.status,
+                      updatedAt: new Date().toISOString(),
+                    });
+                  }}
+                  className="px-3 py-1.5 rounded-lg bg-[#7547FF] hover:brightness-110 text-white text-xs font-semibold cursor-pointer shrink-0"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  Send Reply
                 </button>
               </div>
             </div>

@@ -30,6 +30,8 @@ export interface GeneratedImageItem {
 export interface GeneratedImageRecord {
   id: string;
   userId: string;
+  userEmail?: string;
+  userName?: string;
   conversationId?: string;
   prompt: string;
   style: ImageStyle;
@@ -58,6 +60,7 @@ export interface MessageImagePayload {
 export interface Message {
   id: string;
   conversationId: string;
+  userId?: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: string;
@@ -74,6 +77,9 @@ export interface Message {
 
 export interface Conversation {
   id: string;
+  userId?: string;
+  userEmail?: string;
+  userName?: string;
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -93,6 +99,8 @@ export interface DocumentChunk {
 
 export interface StoredDocument {
   id: string;
+  userId?: string;
+  userEmail?: string;
   name: string;
   size: number;
   type: string;
@@ -234,12 +242,14 @@ export interface AdminActivityLog {
 
 export interface SupportTicket {
   id: string;
+  userId?: string;
   subject: string;
   userEmail: string;
   userName: string;
   priority: 'low' | 'medium' | 'high';
   status: 'open' | 'in_progress' | 'resolved';
   message: string;
+  adminReply?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -301,5 +311,17 @@ export interface AdminOverviewResponse {
   };
   config: AdminRuntimeConfig;
   logs: AdminActivityLog[];
+}
+
+export interface AdminBootstrapResponse {
+  users: UserProfile[];
+  conversations: Conversation[];
+  messages: Message[];
+  images: GeneratedImageRecord[];
+  documents: StoredDocument[];
+  tickets: SupportTicket[];
+  logs: AdminActivityLog[];
+  settings: AppSettings;
+  overview: AdminOverviewResponse;
 }
 
