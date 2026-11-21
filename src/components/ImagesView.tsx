@@ -572,7 +572,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
             <span
               className={`px-2.5 py-1 rounded-full border font-medium ${
                 isCloudBlockedOffline
-                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                   : capabilities?.cloudConfigured
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                   : 'bg-[#14172B] border-[#242A48] text-gray-300'
@@ -581,12 +581,12 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
               {provider === 'local'
                 ? capabilities?.localAvailable
                   ? 'Local SD Ready'
-                  : 'Local SD Offline'
+                  : 'Offline Studio Ready'
                 : isCloudBlockedOffline
-                ? 'Offline Mode Active'
+                ? 'Offline Studio Ready'
                 : capabilities?.cloudConfigured
                 ? 'Cloud Gemini Ready'
-                : 'API Key Needed'}
+                : 'Offline Studio Ready'}
             </span>
           </div>
         </div>
@@ -901,22 +901,22 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
           {showOptions && (
             <div className="glass-panel rounded-2xl p-3 border border-purple-500/35 shadow-2xl space-y-2.5 max-h-[48dvh] overflow-y-auto">
               {isCloudBlockedOffline && (
-                <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-200">
                   <div className="flex items-center gap-2">
-                    <WifiOff className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <WifiOff className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                     <span>
                       {!isOnline
-                        ? 'Device offline. Cloud image generation requires internet access.'
-                        : 'Offline Mode is ON in Settings. Turn it OFF for Cloud API or choose Local.'}
+                        ? 'Offline Studio Active — Generating artwork directly on your device (No internet needed).'
+                        : 'Offline Mode Active — Generating artwork on-device without internet.'}
                     </span>
                   </div>
                   {isOnline && offlineStrict && onDisableOfflineMode && (
                     <button
                       type="button"
                       onClick={onDisableOfflineMode}
-                      className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-100 font-semibold border border-amber-400/30 cursor-pointer shrink-0"
+                      className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-100 font-semibold border border-emerald-400/30 cursor-pointer shrink-0"
                     >
-                      Enable Online Mode
+                      Switch to Cloud AI
                     </button>
                   )}
                 </div>
@@ -994,7 +994,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
                   aria-label="Image Provider"
                   className="col-span-2 sm:col-span-1 w-full min-w-0 bg-[#0B0B16] border border-[#272D4D] text-gray-200 text-sm sm:text-xs rounded-xl px-2.5 py-2 sm:py-1.5 focus:outline-none focus:border-purple-500 cursor-pointer"
                 >
-                  <option value="gemini" className="bg-[#14172B]">Gemini (Primary)</option>
+                  <option value="gemini" className="bg-[#14172B]">Gemini / Cloud AI</option>
                   <option value="openai" className="bg-[#14172B]">OpenAI DALL-E 3{capabilities?.openaiConfigured ? ' ✓' : ''}</option>
                   <option value="local" className="bg-[#14172B]">
                     Local SD{capabilities?.localAvailable ? ' ✓' : ''}

@@ -246,7 +246,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="min-w-0">
                 <div className="text-xs font-bold text-white">Offline Mode</div>
                 <div className="text-[11px] text-gray-400">
-                  {settings.offlineStrict ? 'Strictly offline (No cloud sync)' : 'Online connected mode'}
+                  {settings.offlineStrict
+                    ? '100% Offline Active (Chat, Images, Voice & Docs without internet)'
+                    : 'Online connected mode (Auto-switches offline if network drops)'}
                 </div>
               </div>
             </div>

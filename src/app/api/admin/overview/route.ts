@@ -5,6 +5,7 @@ import {
   OpenAIImageProvider,
   resolveImageApiKey,
 } from '@/lib/imageProvider';
+import { resolveGeminiChatApiKey } from '@/lib/geminiKey';
 import {
   getAdminRuntimeConfig,
   getServerLogs,
@@ -21,10 +22,8 @@ export async function GET() {
 
   const config = getAdminRuntimeConfig();
   const { apiKey: imageApiKey, source: imageKeySource } = resolveImageApiKey();
-  const geminiChatConfigured = Boolean(
-    process.env.GEMINI_API_KEY?.trim() &&
-      process.env.GEMINI_API_KEY.trim() !== 'MY_GEMINI_API_KEY'
-  );
+  const { apiKey: chatApiKey } = resolveGeminiChatApiKey();
+  const geminiChatConfigured = Boolean(chatApiKey);
   const openaiProvider = new OpenAIImageProvider();
   const openaiConfigured = openaiProvider.isConfigured();
   const localProvider = new LocalSDImageProvider();

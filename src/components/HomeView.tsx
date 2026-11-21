@@ -49,6 +49,8 @@ interface HomeViewProps {
   setActiveTab: (tab: NavigationTab) => void;
   language: SupportedLanguage;
   userName?: string;
+  offlineStrict?: boolean;
+  onToggleOfflineMode?: () => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
@@ -66,6 +68,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
   setActiveTab,
   language,
   userName = 'Rizwan Ahmad',
+  offlineStrict = false,
+  onToggleOfflineMode,
 }) => {
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : false
@@ -126,18 +130,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <span className="truncate">{currentDateFormatted || 'Wednesday, November 11, 2026'}</span>
               </span>
 
-              {/* Real Online/Offline Status Indicator */}
-              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
-                isOnline 
-                  ? 'bg-blue-500/10 text-blue-300 border-blue-500/20' 
-                  : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
-              }`}>
-                {isOnline ? (
-                  <>
-                    <Wifi className="w-3 h-3 text-blue-400" />
-                    <span>Internet Available</span>
-                  </>
-                ) : (
+              {/* Real Online/Offline Status Selector */}
+              <button
+                type="button"
+                onClick={onToggleOfflineMode}
+                title="Click to switch between Offline Mode and Online Mode"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors cursor-pointer ${
+                  offlineStrict || !isOnline
+                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/25 hover:border-emerald-400/50'
+                    : 'bg-blue-500/10 text-blue-300 border-blue-500/25 hover:border-blue-400/50'
+                }`}
+              >
+                {offlineStrict || !isOnline ? (
                   <>
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -145,8 +149,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     </span>
                     <span>100% Offline Mode</span>
                   </>
+                ) : (
+                  <>
+                    <Wifi className="w-3 h-3 text-blue-400" />
+                    <span>Online Mode Active</span>
+                  </>
                 )}
-              </span>
+              </button>
 
               {/* Active Local Model Badge */}
               <button 
@@ -409,22 +418,22 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
           {/* Internet Connection */}
           <div className="p-3 rounded-xl bg-[#161B33] border border-[#232948] space-y-1">
-            <span className="text-[10px] uppercase font-bold text-gray-400 block">Internet Status</span>
+            <span className="text-[10px] uppercase font-bold text-gray-400 block">Operating Mode</span>
             <div className="flex items-center gap-1.5 font-semibold text-white">
-              {isOnline ? (
+              {offlineStrict || !isOnline ? (
                 <>
-                  <Wifi className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="text-blue-300">Online</span>
+                  <WifiOff className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-emerald-300">Offline Active</span>
                 </>
               ) : (
                 <>
-                  <WifiOff className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-emerald-300">Offline Protected</span>
+                  <Wifi className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-blue-300">Online Active</span>
                 </>
               )}
             </div>
             <span className="text-[10px] text-gray-400 block truncate">
-              {isOnline ? 'Network detected (No data sent)' : 'Zero internet required'}
+              {offlineStrict || !isOnline ? 'Runs Chat, Images & Docs offline' : 'Auto-switches offline if network drops'}
             </span>
           </div>
 

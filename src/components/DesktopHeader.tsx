@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Settings as SettingsIcon, LogOut, Sun, Moon } from 'lucide-react';
+import { Settings as SettingsIcon, LogOut, Sun, Moon, Wifi, WifiOff } from 'lucide-react';
 import { NavigationTab, UserProfile } from '../types';
 
 interface DesktopHeaderProps {
@@ -13,6 +13,8 @@ interface DesktopHeaderProps {
   currentUser?: UserProfile | null;
   onLogout?: () => void;
   offlineStrict?: boolean;
+  isNetworkOnline?: boolean;
+  onToggleOfflineMode?: () => void;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
 }
@@ -21,38 +23,56 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
   setActiveTab,
   currentUser,
   onLogout,
-  offlineStrict = true,
+  offlineStrict = false,
+  isNetworkOnline = true,
+  onToggleOfflineMode,
   theme = 'dark',
   onToggleTheme,
 }) => {
+  const effectiveOffline = Boolean(offlineStrict) || !isNetworkOnline;
+
   return (
     <header className="hidden md:flex h-12 border-b border-[#1F243D] bg-[#0E1020]/90 backdrop-blur-md px-3 lg:px-4 items-center justify-between select-none z-30 shrink-0 w-full gap-3">
-      {/* Left: Dynamic Status Badge (Offline when toggle ON, Online when OFF) */}
+      {/* Left: One-click Offline / Online Mode Switcher */}
       <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        <div
-          className={`flex items-center gap-2 ${
+        <button
+          type="button"
+          onClick={onToggleOfflineMode}
+          title={
             offlineStrict
-              ? 'bg-[#14182B] border-emerald-500/30 text-emerald-400'
-              : 'bg-blue-950/40 border-blue-500/30 text-blue-400'
-          } border px-2.5 py-1 rounded-full text-xs font-medium shadow-sm shrink-0 whitespace-nowrap`}
+              ? 'Offline Mode Active — Click to switch to Online Mode'
+              : !isNetworkOnline
+              ? 'No Internet Detected — Running in 100% Offline Mode'
+              : 'Online Mode Active — Click to switch to Offline Mode'
+          }
+          className={`flex items-center gap-2 ${
+            effectiveOffline
+              ? 'bg-[#14182B] border-emerald-500/35 text-emerald-400 hover:border-emerald-400/60'
+              : 'bg-blue-950/40 border-blue-500/35 text-blue-400 hover:border-blue-400/60'
+          } border px-2.5 py-1 rounded-full text-xs font-medium shadow-sm shrink-0 whitespace-nowrap transition-all cursor-pointer`}
         >
           <span className="relative flex h-2 w-2">
             <span
               className={`animate-ping absolute inline-flex h-full w-full rounded-full ${
-                offlineStrict ? 'bg-emerald-400' : 'bg-blue-400'
+                effectiveOffline ? 'bg-emerald-400' : 'bg-blue-400'
               } opacity-75`}
             />
             <span
               className={`relative inline-flex rounded-full h-2 w-2 ${
-                offlineStrict ? 'bg-emerald-500' : 'bg-blue-500'
+                effectiveOffline ? 'bg-emerald-500' : 'bg-blue-500'
               }`}
             />
           </span>
-          <span>{offlineStrict ? 'Offline Mode' : 'Online Mode'}</span>
+          {effectiveOffline ? (
+            <WifiOff className="w-3.5 h-3.5 shrink-0" />
+          ) : (
+            <Wifi className="w-3.5 h-3.5 shrink-0" />
+          )}
+          <span>{effectiveOffline ? 'Offline Mode' : 'Online Mode'}</span>
           <span className="text-gray-400 hidden lg:inline">
-            • {offlineStrict ? 'No Internet Required' : 'Connected to Cloud/API'}
+            • {effectiveOffline ? 'Works Without Internet' : 'Connected to Cloud/API'}
           </span>
-        </div>
+        </button>
       </div>
 
       {/* Right: User Status, Theme & Settings */}

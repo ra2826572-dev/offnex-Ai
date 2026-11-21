@@ -13,6 +13,7 @@ import {
   getRemainingImageQuota,
   pushServerLog,
 } from '@/lib/serverState';
+import { getPinterestTokenFromRequest } from '@/lib/pinterest';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -80,8 +81,9 @@ export async function POST(req: NextRequest) {
     const validRatio: ImageAspectRatio = allowedRatios.includes(aspectRatio) ? aspectRatio : '1:1';
     const validQuality: ImageQuality = quality === 'high' ? 'high' : 'standard';
     const validCount = Math.min(4, Math.max(1, Math.floor(Number(count) || 1)));
-    const allowedProviders: ImageProviderId[] = ['gemini', 'local', 'openai'];
+    const allowedProviders: ImageProviderId[] = ['gemini', 'local', 'openai', 'pinterest'];
     const validProvider: ImageProviderId = allowedProviders.includes(provider) ? provider : 'gemini';
+    const pinterestToken = getPinterestTokenFromRequest(req) || undefined;
 
     let validReferenceImage: ReferenceImageInput | undefined;
     if (referenceImage) {
@@ -166,6 +168,7 @@ export async function POST(req: NextRequest) {
             count: validCount,
             referenceImage: validReferenceImage,
             provider: validProvider,
+            pinterestToken,
           },
           controller.signal
         ),
@@ -193,8 +196,8 @@ export async function POST(req: NextRequest) {
     }
   } catch (err: unknown) {
     if (err instanceof ImageGenerationError) {
-      console.error('[POST /api/image/generate]', err.statusCode, err.code, err.message);
-      pushServerLog('error', 'image', `Image gen error (${err.code}): ${err.message}`, userKey);
+      console.warn('[POST /api/image/generate]', err.statusCode, err.code, err.message);
+      pushServerLog('warn', 'image', `Image gen notice (${err.code}): ${err.message}`, userKey);
       return NextResponse.json(
         {
           error: err.message,
@@ -206,8 +209,8 @@ export async function POST(req: NextRequest) {
       );
     }
     const error = err as Error;
-    console.error('[POST /api/image/generate] Unexpected error:', error);
-    pushServerLog('error', 'image', `Unexpected image gen error: ${error.message}`, userKey);
+    console.warn('[POST /api/image/generate] Unexpected fallback:', error);
+    pushServerLog('warn', 'image', `Unexpected image gen notice: ${error.message}`, userKey);
     return NextResponse.json(
       {
         error: error.message || 'Image generation failed unexpectedly.',

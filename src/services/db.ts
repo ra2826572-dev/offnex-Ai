@@ -379,7 +379,7 @@ Key Highlights:
       contextWindow: 4096,
       speechSpeed: 1.0,
       ttsVoice: 'default',
-      offlineStrict: true,
+      offlineStrict: false,
       autoSaveHistory: true,
       enableSoundEffects: true,
     };

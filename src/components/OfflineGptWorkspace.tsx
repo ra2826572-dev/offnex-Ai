@@ -13,6 +13,7 @@ import {
   LocalAIModel,
   UserProfile,
   GeneratedImageRecord,
+  ImageStyle,
 } from '../types';
 import { db } from '../services/db';
 import { aiEngine, SUPPORTED_LOCAL_MODELS } from '../services/aiEngine';
@@ -37,7 +38,7 @@ import { ModelManagerModal } from './ModelManagerModal';
 import { MobileBottomNav } from './MobileBottomNav';
 import { MobileDrawer } from './MobileDrawer';
 import { AuthPage } from './auth/AuthPage';
-import { Menu, WifiOff, Sparkles, X } from 'lucide-react';
+import { Menu, Wifi, WifiOff, Sparkles, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { initPWAListeners } from '../hooks/usePWAInstall';
 
@@ -55,19 +56,22 @@ export function OfflineGptWorkspace() {
   const [settings, setSettings] = useState<AppSettings>({
     language: 'ur',
     theme: 'dark',
-    defaultModel: 'gemini-4-hydrogen',
+    defaultModel: 'gemini-3.1-flash-lite',
     ollamaHost: 'http://localhost:11434',
     temperature: 0.7,
     contextWindow: 4096,
     speechSpeed: 1.0,
     ttsVoice: 'default',
-    offlineStrict: true,
+    offlineStrict: false,
     autoSaveHistory: true,
     enableSoundEffects: true,
   });
 
+  const [isNetworkOnline, setIsNetworkOnline] = useState<boolean>(
+    typeof navigator !== 'undefined' ? navigator.onLine : true
+  );
   const [models, setModels] = useState<LocalAIModel[]>(SUPPORTED_LOCAL_MODELS);
-  const [activeModel, setActiveModel] = useState<string>('gemini-4-hydrogen');
+  const [activeModel, setActiveModel] = useState<string>('gemini-3.1-flash-lite');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   const [lastImageError, setLastImageError] = useState<string | null>(null);
@@ -79,6 +83,19 @@ export function OfflineGptWorkspace() {
   const [autoOpenInstall, setAutoOpenInstall] = useState(false);
   const [dailyUsageTick, setDailyUsageTick] = useState(0);
   const [welcomeBannerName, setWelcomeBannerName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    setIsNetworkOnline(navigator.onLine);
+    const onOnline = () => setIsNetworkOnline(true);
+    const onOffline = () => setIsNetworkOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
 
   // Auto-dismiss welcome message after 6 seconds
   useEffect(() => {
@@ -209,9 +226,97 @@ export function OfflineGptWorkspace() {
     }
   };
 
+  // Detect when user asks for an image/photo/logo/tasveer in Chat and route to Pinterest-first Image Studio
+  const extractChatImageRequest = (
+    rawText: string
+  ): { prompt: string; style: ImageStyle } | null => {
+    const trimmed = rawText.trim();
+    if (!trimmed) return null;
+
+    // 1. Direct Pinterest Pin / Board link
+    if (/^https?:\/\/(www\.)?(pinterest\.com|pin\.it)\//i.test(trimmed)) {
+      return { prompt: trimmed, style: 'Realistic Photography' };
+    }
+
+    const low = trimmed.toLowerCase();
+
+    // Exclude technical / coding / informational questions about image concepts
+    const isInformationalQuestion =
+      /\b(what is|how does|how to compress|how to resize|difference between|explain|html|css|img tag|base64|svg|format|ocr|extract text|pdf|summarize)\b/i.test(
+        low
+      ) && !/\b(generate|create|draw|show me|give me|banao|dikhao|chahiye)\b/i.test(low);
+    if (isInformationalQuestion) return null;
+
+    const hasImageNoun =
+      /\b(image|images|picture|pictures|pic|pics|photo|photos|wallpaper|wallpapers|logo|logos|poster|posters|sketch|drawing|painting|portrait|avatar|tasveer|tasweer|tasvir|dp)\b|تصویر/i.test(
+        low
+      );
+
+    const hasRequestVerb =
+      /\b(generate|create|make|draw|paint|sketch|design|render|show|give|find|search|send|get|fetch|need|want|banao|bana|bna|dikhao|dikha|do|dein|de|chahiye|chaye|bhejo|nikal|lao)\b|بناؤ|بنا|دکھاؤ|دکھا|تصویر/i.test(
+        low
+      );
+
+    const startsWithVisualCommand =
+      /^(draw|sketch|paint|imagine|wallpaper|logo|image of|picture of|photo of|pic of|tasveer)\b/i.test(
+        low
+      );
+
+    if (!((hasImageNoun && hasRequestVerb) || startsWithVisualCommand)) {
+      return null;
+    }
+
+    let inferredStyle: ImageStyle = 'Realistic Photography';
+    if (/\blogo\b/i.test(low)) inferredStyle = 'Logo Design';
+    else if (/\banime\b/i.test(low)) inferredStyle = 'Anime';
+    else if (/\b3d\b/i.test(low)) inferredStyle = '3D Rendering';
+    else if (/\b(sketch|drawing|illustration)\b/i.test(low)) inferredStyle = 'Illustration';
+    else if (/\b(wallpaper|digital art|concept art|painting)\b/i.test(low)) inferredStyle = 'Digital Art';
+    else if (/\bcinematic\b/i.test(low)) inferredStyle = 'Cinematic';
+
+    const cleanedPrompt = trimmed
+      .replace(
+        /^(please|can you|could you|mujhe|mujh ko|mere liye|zara|ek|ai)\s+/gi,
+        ''
+      )
+      .replace(
+        /\b(generate|create|make|draw|show me|give me|find me|send me|search)\s+(an?\s+)?(image|picture|pic|photo|wallpaper|tasveer|tasweer)\s+(of|for|about)?\s*/gi,
+        ''
+      )
+      .replace(/\b(ki|ka|ke)\s+(image|picture|pic|photo|wallpaper|tasveer|tasweer|tasvir)\s*(banao|bana do|dikhao|dikha do|do|dein|chahiye|chaye|bhejo)?/gi, '')
+      .replace(/\b(banao|bana do|dikhao|dikha do|chahiye|chaye)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return {
+      prompt: cleanedPrompt.length >= 2 ? cleanedPrompt : trimmed,
+      style: inferredStyle,
+    };
+  };
+
   // Main message sending handler with real local inference & streaming
   const handleSendMessage = async (text: string, attachedChunks?: any[]) => {
     if (!text.trim() || isGenerating) return;
+
+    // If the user is asking for an image in Chat, automatically check Pinterest first and return visual results in Chat
+    if (!attachedChunks || attachedChunks.length === 0) {
+      const chatImageReq = extractChatImageRequest(text);
+      if (chatImageReq) {
+        await handleGenerateImage(
+          {
+            prompt: chatImageReq.prompt,
+            style: chatImageReq.style,
+            aspectRatio: '1:1',
+            quality: 'standard',
+            count: 1,
+            provider: 'gemini',
+          },
+          true,
+          text.trim()
+        );
+        return;
+      }
+    }
 
     let convId = activeConversationId;
     let createdConv: Conversation | null = null;
@@ -257,6 +362,7 @@ export function OfflineGptWorkspace() {
           language,
           documentChunks: attachedChunks,
           temperature: settings.temperature,
+          offlineStrict: settings.offlineStrict || !isNetworkOnline,
           history: messages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         },
         (token) => {
@@ -319,7 +425,8 @@ export function OfflineGptWorkspace() {
   // AI Image Generation handler
   const handleGenerateImage = async (
     payload: ImageGenerationSubmitPayload,
-    addToChat: boolean = true
+    addToChat: boolean = true,
+    displayUserMessage?: string
   ) => {
     if (!payload.prompt.trim() || isGeneratingImage) return;
 
@@ -335,9 +442,45 @@ export function OfflineGptWorkspace() {
     const uid = currentUser?.id || 'anonymous';
     const currentDailyQuota = getDailyImageQuota(uid, imageHistory, DAILY_IMAGE_LIMIT);
     if (currentDailyQuota.remaining <= 0) {
-      setLastImageError(
-        `Daily image limit reached (${currentDailyQuota.limit}/${currentDailyQuota.limit} images used today). Free chat is unlimited — you can create more images tomorrow.`
-      );
+      const limitMsg = `Daily image limit reached (${currentDailyQuota.limit}/${currentDailyQuota.limit} images used today). Free chat is unlimited — you can create more images tomorrow.`;
+      setLastImageError(limitMsg);
+      if (addToChat) {
+        let convId = activeConversationId;
+        if (!convId) {
+          convId = 'conv-' + Date.now();
+          const conv: Conversation = {
+            id: convId,
+            title: (displayUserMessage || payload.prompt).slice(0, 28),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            modelName: 'Offnex Image Studio',
+            language,
+            messagesCount: 2,
+          };
+          await db.saveConversation(conv);
+          setConversations((prev) => [conv, ...prev]);
+          setActiveConversationId(convId);
+        }
+        const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const uMsg: Message = {
+          id: 'msg-' + Date.now(),
+          conversationId: convId,
+          role: 'user',
+          content: displayUserMessage || `Generate image: ${payload.prompt}`,
+          timestamp: t,
+        };
+        const aMsg: Message = {
+          id: 'msg-' + (Date.now() + 1),
+          conversationId: convId,
+          role: 'assistant',
+          content: `Aaj ki **${currentDailyQuota.limit} images** ki daily limit poori ho chuki hai. Free text chat unlimited hai — kal dubara ${currentDailyQuota.limit} images bana saktay hain.`,
+          timestamp: t,
+          modelUsed: 'Offnex Image Studio',
+        };
+        setMessages((prev) => [...prev, uMsg, aMsg]);
+        await db.saveMessage(uMsg);
+        await db.saveMessage(aMsg);
+      }
       return;
     }
     if (payload.count > currentDailyQuota.remaining) {
@@ -356,10 +499,13 @@ export function OfflineGptWorkspace() {
         convId = 'conv-' + Date.now();
         newlyCreatedConv = {
           id: convId,
-          title: `Image: ${payload.prompt.slice(0, 26)}`,
+          title: (displayUserMessage || `Image: ${payload.prompt}`).slice(0, 28),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
-          modelName: payload.provider === 'local' ? 'Local Stable Diffusion' : 'Gemini Image',
+          modelName:
+            payload.provider === 'local'
+              ? 'Local Stable Diffusion'
+              : 'Offnex Image Studio',
           language: language,
           messagesCount: 1,
         };
@@ -373,9 +519,12 @@ export function OfflineGptWorkspace() {
         id: 'msg-' + Date.now(),
         conversationId: convId,
         role: 'user',
-        content: `Generate image: ${payload.prompt}`,
+        content: displayUserMessage || `Generate image: ${payload.prompt}`,
         timestamp: timeString,
-        modelUsed: payload.provider === 'local' ? 'Local SD' : 'Gemini Image',
+        modelUsed:
+          payload.provider === 'local'
+            ? 'Local SD'
+            : 'Offnex Image Studio',
         imageGeneration: payload.referenceImage
           ? {
               prompt: payload.prompt,
@@ -495,7 +644,12 @@ export function OfflineGptWorkspace() {
           role: 'assistant',
           content: '',
           timestamp: timeString,
-          modelUsed: payload.provider === 'local' ? 'Local SD' : 'Gemini Image',
+          modelUsed:
+            payload.provider === 'local'
+              ? 'Local SD'
+              : payload.provider === 'pinterest'
+              ? 'Pinterest'
+              : 'Gemini Image',
           imageGeneration: {
             prompt: payload.prompt,
             style: payload.style,
@@ -548,7 +702,10 @@ export function OfflineGptWorkspace() {
 
   // Voice Query Dispatcher
   const handleVoiceQuery = async (queryText: string): Promise<string> => {
-    const res = await aiEngine.generateResponse(queryText, { language });
+    const res = await aiEngine.generateResponse(queryText, {
+      language,
+      offlineStrict: settings.offlineStrict || !isNetworkOnline,
+    });
     return res.text;
   };
 
@@ -558,6 +715,14 @@ export function OfflineGptWorkspace() {
     const updated = { ...settings, language: newLang };
     setSettings(updated);
     await db.saveSettings(updated);
+  };
+
+  // Toggle Offline Mode vs Online Mode from header / quick switch
+  const handleToggleOfflineMode = async () => {
+    const updated = { ...settings, offlineStrict: !settings.offlineStrict };
+    setSettings(updated);
+    await db.saveSettings(updated);
+    setLastImageError(null);
   };
 
   // Switch Offline Mode off when user explicitly requests online cloud features
@@ -685,6 +850,8 @@ export function OfflineGptWorkspace() {
         currentUser={currentUser}
         onLogout={handleLogout}
         offlineStrict={settings.offlineStrict}
+        isNetworkOnline={isNetworkOnline}
+        onToggleOfflineMode={handleToggleOfflineMode}
         theme={settings.theme}
         onToggleTheme={async () => {
           const nextTheme = settings.theme === 'dark' ? 'light' : 'dark';
@@ -712,16 +879,23 @@ export function OfflineGptWorkspace() {
             <span>Offnex</span> <span className="text-[#287BFF]">Ai</span>
           </span>
         </div>
-        <div
+        <button
+          type="button"
+          onClick={handleToggleOfflineMode}
+          title="Tap to switch Offline / Online Mode"
           className={`flex items-center gap-1.5 text-[10px] font-medium ${
-            settings.offlineStrict
-              ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-              : 'text-blue-400 bg-blue-500/10 border-blue-500/20'
-          } px-2.5 py-1 rounded-full border shrink-0 whitespace-nowrap`}
+            settings.offlineStrict || !isNetworkOnline
+              ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25'
+              : 'text-blue-400 bg-blue-500/10 border-blue-500/25'
+          } px-2.5 py-1 rounded-full border shrink-0 whitespace-nowrap cursor-pointer transition-colors`}
         >
-          <WifiOff className="w-3 h-3 shrink-0" />
-          <span>{settings.offlineStrict ? 'Offline' : 'Online'}</span>
-        </div>
+          {settings.offlineStrict || !isNetworkOnline ? (
+            <WifiOff className="w-3 h-3 shrink-0" />
+          ) : (
+            <Wifi className="w-3 h-3 shrink-0" />
+          )}
+          <span>{settings.offlineStrict || !isNetworkOnline ? 'Offline' : 'Online'}</span>
+        </button>
       </div>
 
       {/* 2. Main Three-Column Workspace */}
@@ -766,6 +940,8 @@ export function OfflineGptWorkspace() {
               setActiveTab={setActiveTab}
               language={language}
               userName={currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'Rizwan Ahmad'}
+              offlineStrict={settings.offlineStrict}
+              onToggleOfflineMode={handleToggleOfflineMode}
             />
           )}
 

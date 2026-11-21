@@ -10,6 +10,7 @@ import {
   Languages,
   ShieldCheck,
   Radio,
+  Send,
 } from 'lucide-react';
 import { SupportedLanguage } from '../types';
 import { speechService } from '../services/speechService';
@@ -20,6 +21,13 @@ interface VoiceViewProps {
   onSendVoiceQuery: (text: string) => Promise<string>;
 }
 
+const QUICK_VOICE_PROMPTS = [
+  'Pakistan ki economy per report do',
+  'Summarize how AI works',
+  'Tell me today date and time',
+  '15% of 2500',
+];
+
 export const VoiceView: React.FC<VoiceViewProps> = ({
   language,
   setLanguage,
@@ -27,6 +35,8 @@ export const VoiceView: React.FC<VoiceViewProps> = ({
 }) => {
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [manualQuery, setManualQuery] = useState('');
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
   const [assistantReply, setAssistantReply] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -45,6 +55,7 @@ export const VoiceView: React.FC<VoiceViewProps> = ({
         processVoiceText(transcript.trim());
       }
     } else {
+      setVoiceNotice(null);
       setTranscript('');
       setAssistantReply('');
       setIsRecording(true);
@@ -70,19 +81,32 @@ export const VoiceView: React.FC<VoiceViewProps> = ({
         (err) => {
           console.warn('Voice error:', err);
           setIsRecording(false);
+          if (String(err).toLowerCase().includes('network')) {
+            setVoiceNotice(
+              'Browser mic STT needs internet or offline voice pack — type or tap any prompt below and Offnex Ai will answer with voice playback offline!'
+            );
+          } else {
+            setVoiceNotice(
+              'Microphone unavailable right now. Type or tap a quick prompt below for offline voice reply.'
+            );
+          }
         }
       );
 
       if (!started) {
         setIsRecording(false);
+        setVoiceNotice('Could not access microphone. You can still type or tap a quick prompt below.');
       }
     }
   };
 
   const processVoiceText = async (text: string) => {
+    if (!text.trim() || isProcessing) return;
+    setVoiceNotice(null);
+    setTranscript(text.trim());
     setIsProcessing(true);
     try {
-      const response = await onSendVoiceQuery(text);
+      const response = await onSendVoiceQuery(text.trim());
       setAssistantReply(response);
       speakText(response);
     } finally {
@@ -102,6 +126,14 @@ export const VoiceView: React.FC<VoiceViewProps> = ({
   const handleStopAudio = () => {
     speechService.stopSpeaking();
     setIsPlayingAudio(false);
+  };
+
+  const handleManualSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!manualQuery.trim() || isProcessing) return;
+    const q = manualQuery.trim();
+    setManualQuery('');
+    await processVoiceText(q);
   };
 
   return (
@@ -132,7 +164,7 @@ export const VoiceView: React.FC<VoiceViewProps> = ({
         </div>
 
         {/* Center Interactive Microphone */}
-        <div className="w-full flex flex-col items-center justify-center my-auto space-y-5 sm:space-y-6 text-center py-2">
+        <div className="w-full flex flex-col items-center justify-center my-auto space-y-4 sm:space-y-5 text-center py-2">
           {/* Pulsing circular mic button */}
           <div className="relative flex items-center justify-center">
             <div
@@ -167,15 +199,15 @@ export const VoiceView: React.FC<VoiceViewProps> = ({
           {/* Labels */}
           <div className="space-y-1 px-2">
             <h3 className="text-lg sm:text-xl font-extrabold text-white">
-              {isRecording ? 'Listening to your voice...' : 'Tap to Speak'}
+              {isRecording ? 'Listening to your voice...' : 'Tap to Speak or Type'}
             </h3>
             <p className="text-xs text-gray-400">
-              Ask anything... (English / Urdu / Roman Urdu)
+              Ask anything... (English / Urdu / Roman Urdu • Offline TTS Ready)
             </p>
           </div>
 
           {/* Dynamic Waveform Bars */}
-          <div className="flex items-center justify-center gap-1.5 h-14 sm:h-16 w-full max-w-[260px] px-4 bg-[#121528] rounded-2xl border border-purple-500/20">
+          <div className="flex items-center justify-center gap-1.5 h-12 sm:h-14 w-full max-w-[260px] px-4 bg-[#121528] rounded-2xl border border-purple-500/20">
             {waveHeights.map((h, i) => (
               <div
                 key={i}
@@ -186,6 +218,45 @@ export const VoiceView: React.FC<VoiceViewProps> = ({
                 }`}
                 style={{ height: `${isRecording ? h : 10 + Math.sin(i) * 6}px` }}
               />
+            ))}
+          </div>
+
+          {voiceNotice && (
+            <div className="w-full max-w-lg px-3.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 text-left">
+              {voiceNotice}
+            </div>
+          )}
+
+          {/* Offline Voice Input Bar + Quick Voice Commands */}
+          <form onSubmit={handleManualSubmit} className="w-full max-w-lg flex items-center gap-2">
+            <input
+              type="text"
+              value={manualQuery}
+              onChange={(e) => setManualQuery(e.target.value)}
+              placeholder="Ask via text & hear spoken answer offline..."
+              className="flex-1 bg-[#14182E] border border-[#262D50] focus:border-purple-500 rounded-xl px-3.5 py-2 text-xs text-white placeholder-gray-400 focus:outline-none min-w-0"
+            />
+            <button
+              type="submit"
+              disabled={!manualQuery.trim() || isProcessing}
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#4435D5] to-[#7547FF] text-white text-xs font-semibold flex items-center gap-1.5 disabled:opacity-40 cursor-pointer shrink-0"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Ask & Speak</span>
+            </button>
+          </form>
+
+          <div className="w-full max-w-lg flex flex-wrap items-center justify-center gap-1.5">
+            {QUICK_VOICE_PROMPTS.map((qp) => (
+              <button
+                key={qp}
+                type="button"
+                onClick={() => processVoiceText(qp)}
+                disabled={isProcessing}
+                className="px-2.5 py-1 rounded-full bg-[#14182E] hover:bg-[#1E2444] border border-[#262D50] text-[11px] text-gray-300 hover:text-white transition-colors cursor-pointer"
+              >
+                {qp}
+              </button>
             ))}
           </div>
 
@@ -227,7 +298,7 @@ export const VoiceView: React.FC<VoiceViewProps> = ({
                   )}
                 </button>
               </div>
-              <p className="text-gray-200 text-xs leading-relaxed max-h-40 overflow-y-auto">
+              <p className="text-gray-200 text-xs leading-relaxed max-h-40 overflow-y-auto whitespace-pre-line">
                 {assistantReply}
               </p>
             </div>

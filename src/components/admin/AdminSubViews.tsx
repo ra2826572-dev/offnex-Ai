@@ -150,7 +150,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
 
   const activeConfig: AdminRuntimeConfig = configDraft ||
     overview?.config || {
-      defaultChatModel: 'gemini-4-hydrogen',
+      defaultChatModel: 'gemini-3.1-flash-lite',
       defaultImageModel: 'gemini-2.5-flash-image',
       highQualityImageModel: 'gemini-nano-banana-2.1',
       imageRateLimitMax: 10,

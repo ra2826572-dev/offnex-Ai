@@ -46,7 +46,7 @@ export interface ImageGenerationSubmitPayload {
   aspectRatio: ImageAspectRatio;
   quality: ImageQuality;
   count: number;
-  provider: 'gemini' | 'local' | 'openai';
+  provider: 'gemini' | 'local' | 'openai' | 'pinterest';
   referenceImage?: ValidatedReferenceImage;
 }
 

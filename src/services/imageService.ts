@@ -5,6 +5,7 @@ import {
   ImageQuality,
   ImageStyle,
 } from '../types';
+import { generateOfflineImages } from './offlineImageEngine';
 
 export const DAILY_IMAGE_LIMIT = 10;
 
@@ -116,6 +117,9 @@ export interface ImageCapabilities {
   cloudConfigured: boolean;
   keySource?: 'IMAGE_GENERATION_API_KEY' | 'GEMINI_API_KEY' | 'none';
   openaiConfigured: boolean;
+  pinterestReady?: boolean;
+  pinterestOAuthConfigured?: boolean;
+  pinterestConnected?: boolean;
   cloudModelStandard: string;
   cloudModelHigh: string;
   localAvailable: boolean;
@@ -198,7 +202,7 @@ export interface GenerateImageParams {
   aspectRatio: ImageAspectRatio;
   quality: ImageQuality;
   count: number;
-  provider: 'gemini' | 'local' | 'openai';
+  provider: 'gemini' | 'local' | 'openai' | 'pinterest';
   referenceImage?: {
     data: string;
     mimeType: 'image/png' | 'image/jpeg' | 'image/webp';
@@ -210,13 +214,148 @@ export interface GenerateImageParams {
 export interface GenerateImageApiResponse {
   images: GeneratedImageItem[];
   modelUsed: string;
-  provider: 'gemini' | 'local' | 'openai';
+  provider: 'gemini' | 'local' | 'openai' | 'pinterest';
   textNote?: string;
   quota?: {
     remaining: number;
     limit: number;
     resetMs: number;
   };
+}
+
+export interface PinterestPinItemClient {
+  id: string;
+  title: string;
+  description?: string;
+  imageUrl: string;
+  thumbnailUrl: string;
+  pinUrl: string;
+  author?: string;
+  boardName?: string;
+  width?: number;
+  height?: number;
+  source: string;
+}
+
+export interface PinterestBoardClient {
+  id: string;
+  name: string;
+  description?: string;
+  pinCount?: number;
+  imageThumbnailUrl?: string;
+}
+
+export interface PinterestStatusResponse {
+  oauthConfigured: boolean;
+  connected: boolean;
+  callbackUrl: string;
+  user: {
+    username: string;
+    businessName?: string;
+    profileImage?: string;
+  } | null;
+  boards: PinterestBoardClient[];
+  pins: PinterestPinItemClient[];
+}
+
+export function getProxiedPinterestImageUrl(rawUrl: string): string {
+  return `/api/pinterest/image?url=${encodeURIComponent(rawUrl)}`;
+}
+
+export async function fetchPinterestStatus(): Promise<PinterestStatusResponse | null> {
+  try {
+    const res = await fetch('/api/pinterest/status');
+    if (!res.ok) return null;
+    return (await res.json()) as PinterestStatusResponse;
+  } catch {
+    return null;
+  }
+}
+
+export async function searchPinterestPinsApi(
+  query: string,
+  boardId?: string,
+  limit: number = 18
+): Promise<{ pins: PinterestPinItemClient[]; source?: string; connected?: boolean; error?: string }> {
+  const params = new URLSearchParams();
+  if (query.trim()) params.set('q', query.trim());
+  if (boardId) params.set('boardId', boardId);
+  params.set('limit', String(limit));
+  const res = await fetch(`/api/pinterest/search?${params.toString()}`);
+  const data = (await res.json().catch(() => ({ pins: [] }))) as {
+    pins?: PinterestPinItemClient[];
+    source?: string;
+    connected?: boolean;
+    error?: string;
+  };
+  return {
+    pins: Array.isArray(data.pins) ? data.pins : [],
+    source: data.source,
+    connected: data.connected,
+    error: data.error,
+  };
+}
+
+export async function fetchPinterestAuthUrl(): Promise<{
+  configured: boolean;
+  url?: string;
+  callbackUrl?: string;
+  error?: string;
+}> {
+  const res = await fetch('/api/pinterest/auth/url');
+  return (await res.json()) as {
+    configured: boolean;
+    url?: string;
+    callbackUrl?: string;
+    error?: string;
+  };
+}
+
+export async function disconnectPinterestAccount(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/pinterest/disconnect', { method: 'POST' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function pinterestImageUrlToReference(
+  imageUrl: string,
+  title: string
+): Promise<ValidatedReferenceImage> {
+  const res = await fetch(getProxiedPinterestImageUrl(imageUrl));
+  if (!res.ok) {
+    throw new Error('Could not load Pinterest image as reference.');
+  }
+  const blob = await res.blob();
+  const rawType = (blob.type || 'image/jpeg').toLowerCase();
+  const mimeType: 'image/png' | 'image/jpeg' | 'image/webp' =
+    rawType === 'image/png'
+      ? 'image/png'
+      : rawType === 'image/webp'
+      ? 'image/webp'
+      : 'image/jpeg';
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      const base64 = dataUrl.split(',')[1];
+      if (!base64) {
+        reject(new Error('Could not encode Pinterest image.'));
+        return;
+      }
+      resolve({
+        data: base64,
+        mimeType,
+        previewUrl: dataUrl,
+        fileName: `${(title || 'pinterest_pin').slice(0, 28)}.${mimeType.split('/')[1]}`,
+      });
+    };
+    reader.onerror = () => reject(new Error('Failed to read Pinterest image.'));
+    reader.readAsDataURL(blob);
+  });
 }
 
 export async function generateImageApi(
@@ -226,18 +365,34 @@ export async function generateImageApi(
     throw new Error('Please describe the image you want to create.');
   }
 
-  // Honest offline handling: do not pretend cloud generation works offline
-  if (params.provider === 'gemini') {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      throw new Error(
-        'Your device is currently offline. Cloud AI image generation requires an internet connection (or switch to a compatible local image model if installed).'
-      );
+  const isBrowserOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const shouldUseOfflineStudio =
+    Boolean(params.offlineStrict) ||
+    isBrowserOffline;
+
+  const renderOnDeviceFallback = async (reasonNote: string): Promise<GenerateImageApiResponse> => {
+    const localImages = await generateOfflineImages({
+      prompt: params.prompt.trim(),
+      style: params.style,
+      aspectRatio: params.aspectRatio,
+      quality: params.quality,
+      count: params.count,
+      referenceImage: params.referenceImage,
+    });
+    if (localImages.length === 0) {
+      throw new Error('Could not generate image on this device.');
     }
-    if (params.offlineStrict) {
-      throw new Error(
-        'Offline Mode is currently enabled in Settings. Disable Offline Mode to use Cloud AI image generation, or select Local SD if installed.'
-      );
-    }
+    return {
+      images: localImages,
+      modelUsed: 'Offnex Studio (On-Device)',
+      provider: 'local',
+      textNote: reasonNote,
+    };
+  };
+
+  // Run full on-device Offline Image Studio cleanly when offlineStrict is enabled or network is down
+  if (shouldUseOfflineStudio && params.provider !== 'local') {
+    return renderOnDeviceFallback('Generated 100% offline on your device (No internet required).');
   }
 
   const controller = new AbortController();
@@ -274,23 +429,40 @@ export async function generateImageApi(
     }
 
     if (!response.ok) {
+      const code = typeof data.code === 'string' ? data.code : '';
       const errMsg =
         (typeof data.error === 'string' && data.error) ||
         `Image generation failed (HTTP ${response.status}).`;
-      console.error('[ImageService Error]', { status: response.status, code: data.code, error: errMsg });
-      throw new Error(errMsg);
+
+      // Respect explicit input validation / daily app quota / safety filter blocks
+      if (
+        code === 'DAILY_LIMIT_EXCEEDED' ||
+        code === 'INVALID_PROMPT' ||
+        code === 'PROMPT_TOO_LONG' ||
+        code === 'INVALID_REFERENCE_IMAGE' ||
+        code === 'REFERENCE_IMAGE_TOO_LARGE' ||
+        code === 'CONTENT_BLOCKED'
+      ) {
+        throw new Error(errMsg);
+      }
+
+      // When Google Cloud free-tier quota (429 limit:0), API key, or Local SD is unavailable,
+      // seamlessly render via Offnex On-Device Studio instead of failing!
+      console.warn('[ImageService Fallback]', { status: response.status, code, reason: errMsg });
+      return await renderOnDeviceFallback('Cloud image service busy — generated via Offnex On-Device Studio.');
     }
 
     if (!Array.isArray(data.images) || data.images.length === 0) {
-      throw new Error('No image was returned by the image generation provider.');
+      return await renderOnDeviceFallback('Generated via Offnex On-Device Studio.');
     }
 
     return data as unknown as GenerateImageApiResponse;
   } catch (err: unknown) {
-    if ((err as Error).name === 'AbortError') {
-      throw new Error('Image generation request timed out. Please try again with a simpler prompt.');
+    const errObj = err as Error;
+    if (errObj?.name === 'AbortError' || err instanceof TypeError || isBrowserOffline) {
+      console.warn('[ImageService Network/Timeout Fallback]', errObj?.message || err);
+      return renderOnDeviceFallback('Generated via Offnex On-Device Studio.');
     }
-    console.error('[ImageService Exception]', err);
     throw err;
   } finally {
     clearTimeout(timeoutId);

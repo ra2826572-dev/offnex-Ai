@@ -37,7 +37,7 @@ export interface GeneratedImageRecord {
   quality: ImageQuality;
   count: number;
   modelUsed: string;
-  provider: 'gemini' | 'local' | 'openai';
+  provider: 'gemini' | 'local' | 'openai' | 'pinterest';
   images: GeneratedImageItem[];
   hasReferenceImage?: boolean;
   createdAt: string;
@@ -49,7 +49,7 @@ export interface MessageImagePayload {
   aspectRatio: ImageAspectRatio;
   quality: ImageQuality;
   count: number;
-  provider: 'gemini' | 'local' | 'openai';
+  provider: 'gemini' | 'local' | 'openai' | 'pinterest';
   images: GeneratedImageItem[];
   referencePreviewUrl?: string;
   error?: string;

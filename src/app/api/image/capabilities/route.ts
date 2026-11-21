@@ -7,6 +7,7 @@ import {
   verifyGeminiImageModelAccess,
 } from '@/lib/imageProvider';
 import { getRemainingImageQuota } from '@/lib/serverState';
+import { getPinterestOAuthConfig, getPinterestTokenFromRequest } from '@/lib/pinterest';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -26,11 +27,16 @@ export async function GET(req: NextRequest) {
   const userKey =
     req.headers.get('x-user-id') || req.headers.get('x-forwarded-for') || 'anonymous';
   const quota = getRemainingImageQuota(userKey);
+  const pinterestOAuth = getPinterestOAuthConfig();
+  const pinterestConnected = Boolean(getPinterestTokenFromRequest(req));
 
   return NextResponse.json({
     cloudConfigured,
     keySource,
     openaiConfigured,
+    pinterestReady: true,
+    pinterestOAuthConfigured: pinterestOAuth.configured,
+    pinterestConnected,
     cloudModelStandard: modelStandard,
     cloudModelHigh: modelHigh,
     modelAccess,
