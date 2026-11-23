@@ -209,12 +209,117 @@ export async function pushActivityLogToBackend(
   }
 }
 
+async function fetchJsonSafe<T>(url: string): Promise<T | null> {
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchAdminBootstrapFromBackend(): Promise<AdminBootstrapResponse | null> {
   if (!isOnline()) return null;
   try {
     const res = await fetch('/api/admin/bootstrap', { cache: 'no-store' });
-    if (!res.ok) return null;
-    return (await res.json()) as AdminBootstrapResponse;
+    if (res.ok) {
+      const data = (await res.json()) as AdminBootstrapResponse;
+      if (data && Array.isArray(data.users) && Array.isArray(data.images)) {
+        return data;
+      }
+    }
+  } catch {
+    // Fall through to individual lightweight endpoints
+  }
+
+  try {
+    const [usersRes, chatsRes, imgsRes, docsRes, settingsRes, ticketsRes, logsRes, overviewRes] =
+      await Promise.all([
+        fetchJsonSafe<{ users?: AdminBootstrapResponse['users'] }>('/api/admin/users'),
+        fetchJsonSafe<{
+          conversations?: AdminBootstrapResponse['conversations'];
+          messages?: AdminBootstrapResponse['messages'];
+        }>('/api/chats?all=1'),
+        fetchJsonSafe<{ images?: AdminBootstrapResponse['images'] }>('/api/images?all=1&compact=1'),
+        fetchJsonSafe<{ documents?: AdminBootstrapResponse['documents'] }>('/api/documents?all=1'),
+        fetchJsonSafe<{ settings?: AdminBootstrapResponse['settings'] }>('/api/settings'),
+        fetchJsonSafe<{ tickets?: AdminBootstrapResponse['tickets'] }>('/api/tickets'),
+        fetchJsonSafe<{ logs?: AdminBootstrapResponse['logs'] }>('/api/admin/logs'),
+        fetchJsonSafe<AdminBootstrapResponse['overview']>('/api/admin/overview'),
+      ]);
+
+    const gotAnyCoreData = Boolean(usersRes || chatsRes || imgsRes || overviewRes);
+    if (!gotAnyCoreData) return null;
+
+    return {
+      users: Array.isArray(usersRes?.users) ? usersRes.users : [],
+      conversations: Array.isArray(chatsRes?.conversations) ? chatsRes.conversations : [],
+      messages: Array.isArray(chatsRes?.messages) ? chatsRes.messages : [],
+      images: Array.isArray(imgsRes?.images) ? imgsRes.images : [],
+      documents: Array.isArray(docsRes?.documents) ? docsRes.documents : [],
+      settings: settingsRes?.settings || {
+        language: 'ur',
+        theme: 'dark',
+        defaultModel: 'gemini-3.1-flash-lite',
+        ollamaHost: 'http://localhost:11434',
+        temperature: 0.7,
+        contextWindow: 4096,
+        speechSpeed: 1.0,
+        ttsVoice: 'default',
+        offlineStrict: true,
+        autoSaveHistory: true,
+        enableSoundEffects: true,
+      },
+      tickets: Array.isArray(ticketsRes?.tickets) ? ticketsRes.tickets : [],
+      logs: Array.isArray(logsRes?.logs) ? logsRes.logs : overviewRes?.logs || [],
+      overview: overviewRes || {
+        providers: {
+          geminiChat: {
+            configured: false,
+            model: 'gemini-3.1-flash-lite',
+            status: 'unconfigured',
+          },
+          geminiImage: {
+            configured: false,
+            keySource: 'none',
+            modelStandard: 'gemini-2.5-flash-image',
+            modelHigh: 'gemini-nano-banana-2.1',
+            status: 'unconfigured',
+          },
+          openai: { configured: false, model: 'dall-e-3', status: 'unconfigured' },
+          ollama: { connected: false, host: 'http://localhost:11434', status: 'offline' },
+          localSd: {
+            available: false,
+            endpoint: 'http://127.0.0.1:7860',
+            modelsCount: 0,
+            status: 'offline',
+          },
+        },
+        hardware: {
+          platform: 'web',
+          arch: 'x64',
+          nodeVersion: '',
+          cpuCount: 1,
+          cpuModel: 'server',
+          totalMemGb: 0,
+          freeMemGb: 0,
+          usedMemGb: 0,
+          uptimeSec: 0,
+        },
+        config: {
+          defaultChatModel: 'gemini-3.1-flash-lite',
+          defaultImageModel: 'gemini-2.5-flash-image',
+          highQualityImageModel: 'gemini-nano-banana-2.1',
+          imageRateLimitMax: 10,
+          imageRateLimitWindowMinutes: 1440,
+          maintenanceMode: false,
+          allowLocalFallback: true,
+          ollamaHost: 'http://localhost:11434',
+        },
+        logs: [],
+      },
+    };
   } catch {
     return null;
   }

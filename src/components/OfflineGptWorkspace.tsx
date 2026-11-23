@@ -316,7 +316,36 @@ export function OfflineGptWorkspace() {
       setIsOllamaConnected(status.connected);
 
       if (syncedUser?.id) {
-        const localImgs = await db.getImageHistory(syncedUser.id);
+        const allLocalImgs = await db.getAllImageHistory();
+        const syncedEmailLow = syncedUser.email?.toLowerCase();
+        const syncedFullName = [syncedUser.firstName, syncedUser.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        const localImgs: GeneratedImageRecord[] = [];
+        for (const rec of allLocalImgs) {
+          const belongsToUser =
+            rec.userId === syncedUser.id ||
+            !rec.userId ||
+            rec.userId === 'anonymous' ||
+            (syncedEmailLow && rec.userEmail?.toLowerCase() === syncedEmailLow);
+          if (!belongsToUser) continue;
+          const needsClaim =
+            !rec.userId || rec.userId === 'anonymous' || !rec.userEmail;
+          const claimed: GeneratedImageRecord = needsClaim
+            ? {
+                ...rec,
+                userId: rec.userId && rec.userId !== 'anonymous' ? rec.userId : syncedUser.id,
+                userEmail: rec.userEmail || syncedUser.email,
+                userName: rec.userName || syncedFullName || syncedUser.email,
+              }
+            : rec;
+          if (needsClaim) {
+            await db.saveImageRecord(claimed);
+          }
+          localImgs.push(claimed);
+        }
+
         const backendImgs = await fetchUserImagesFromBackend(syncedUser.id, syncedUser.email);
         if (backendImgs) {
           const imgMap = new Map<string, GeneratedImageRecord>();
@@ -333,9 +362,7 @@ export function OfflineGptWorkspace() {
               void syncImageRecordToBackend({
                 ...rec,
                 userEmail: rec.userEmail || syncedUser.email,
-                userName:
-                  rec.userName ||
-                  [syncedUser.firstName, syncedUser.lastName].filter(Boolean).join(' ').trim(),
+                userName: rec.userName || syncedFullName || syncedUser.email,
               });
             }
           }
@@ -363,7 +390,35 @@ export function OfflineGptWorkspace() {
     }
     const uid = currentUser.id;
     db.init().then(async () => {
-      const localImgs = await db.getImageHistory(uid);
+      const signInEmailLow = currentUser?.email?.toLowerCase();
+      const signInOwnerName = [currentUser?.firstName, currentUser?.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      const allLocalImgs = await db.getAllImageHistory();
+      const localImgs: GeneratedImageRecord[] = [];
+      for (const rec of allLocalImgs) {
+        const belongsToUser =
+          rec.userId === uid ||
+          !rec.userId ||
+          rec.userId === 'anonymous' ||
+          (signInEmailLow && rec.userEmail?.toLowerCase() === signInEmailLow);
+        if (!belongsToUser) continue;
+        const needsClaim = !rec.userId || rec.userId === 'anonymous' || !rec.userEmail;
+        const claimed: GeneratedImageRecord = needsClaim
+          ? {
+              ...rec,
+              userId: rec.userId && rec.userId !== 'anonymous' ? rec.userId : uid,
+              userEmail: rec.userEmail || currentUser?.email,
+              userName: rec.userName || signInOwnerName || currentUser?.email,
+            }
+          : rec;
+        if (needsClaim) {
+          await db.saveImageRecord(claimed);
+        }
+        localImgs.push(claimed);
+      }
+
       const backendImgs = await fetchUserImagesFromBackend(uid, currentUser?.email);
       if (backendImgs) {
         const map = new Map<string, GeneratedImageRecord>();
@@ -375,10 +430,6 @@ export function OfflineGptWorkspace() {
           }
         }
         const backendImgIds = new Set(backendImgs.map((r) => r.id));
-        const signInOwnerName = [currentUser?.firstName, currentUser?.lastName]
-          .filter(Boolean)
-          .join(' ')
-          .trim();
         for (const rec of localImgs) {
           if (!backendImgIds.has(rec.id)) {
             const taggedImg: GeneratedImageRecord = {
@@ -1206,7 +1257,7 @@ export function OfflineGptWorkspace() {
         createdAt: new Date().toISOString(),
       };
       await db.saveImageRecord(historyRecord);
-      void syncImageRecordToBackend(historyRecord);
+      await syncImageRecordToBackend(historyRecord);
       setImageHistory((prev) => [historyRecord, ...prev]);
       recordDailyImageUsage(uid, result.images.length);
       setDailyUsageTick((t) => t + 1);
@@ -1427,7 +1478,7 @@ export function OfflineGptWorkspace() {
         createdAt: new Date().toISOString(),
       };
       await db.saveImageRecord(videoRecord);
-      void syncImageRecordToBackend(videoRecord);
+      await syncImageRecordToBackend(videoRecord);
       setImageHistory((prev) => [videoRecord, ...prev]);
     } catch (err: unknown) {
       const errMsg = (err as Error)?.message || 'Video generation failed.';

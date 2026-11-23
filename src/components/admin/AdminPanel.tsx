@@ -56,7 +56,80 @@ import {
   ImagePlus,
   MessageCircle,
   AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
+
+const ADMIN_SNAPSHOT_CACHE_KEY = 'offnex_admin_cached_snapshot_v1';
+
+type AdminSyncStatus = 'live' | 'cached' | 'offline';
+
+interface CachedAdminSnapshot {
+  users: UserProfile[];
+  conversations: Conversation[];
+  messages: Message[];
+  images: GeneratedImageRecord[];
+  documents: StoredDocument[];
+  tickets: SupportTicket[];
+  logs: AdminActivityLog[];
+  settings?: AppSettings;
+  savedAt: string;
+}
+
+function compactImageRecordForCache(rec: GeneratedImageRecord): GeneratedImageRecord {
+  return {
+    ...rec,
+    videoUrl:
+      rec.videoUrl && rec.videoUrl.startsWith('data:') && rec.videoUrl.length > 48_000
+        ? undefined
+        : rec.videoUrl,
+    images: (rec.images || []).map((img) => ({
+      ...img,
+      dataUrl:
+        img.dataUrl && img.dataUrl.startsWith('data:') && img.dataUrl.length > 65_000
+          ? ''
+          : img.dataUrl,
+    })),
+  };
+}
+
+function readCachedAdminSnapshot(): CachedAdminSnapshot | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(ADMIN_SNAPSHOT_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedAdminSnapshot;
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedAdminSnapshot(snap: CachedAdminSnapshot): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const compact: CachedAdminSnapshot = {
+      ...snap,
+      images: snap.images.slice(0, 120).map(compactImageRecordForCache),
+      messages: snap.messages.slice(-300).map((m) => ({
+        ...m,
+        videoGeneration: m.videoGeneration
+          ? {
+              ...m.videoGeneration,
+              videoUrl:
+                m.videoGeneration.videoUrl?.startsWith('data:') &&
+                m.videoGeneration.videoUrl.length > 48_000
+                  ? ''
+                  : m.videoGeneration.videoUrl,
+            }
+          : undefined,
+      })),
+    };
+    localStorage.setItem(ADMIN_SNAPSHOT_CACHE_KEY, JSON.stringify(compact));
+  } catch {
+    // Ignore storage quota errors cleanly
+  }
+}
 
 interface AdminPanelProps {
   currentUser: UserProfile | null;
@@ -136,61 +209,333 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     enableSoundEffects: true,
   });
   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
+  const [syncStatus, setSyncStatus] = useState<AdminSyncStatus>('live');
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const lastAdminRevisionRef = useRef<string | null>(null);
+  const hasBackendSyncRef = useRef<boolean>(false);
 
   const loadAllAdminData = useCallback(async () => {
+    setIsRefreshing(true);
     try {
       await authService.init();
       await db.init();
 
-      const bootstrap = await fetchAdminBootstrapFromBackend();
-      if (bootstrap) {
-        setUsers(bootstrap.users);
-        setConversations(bootstrap.conversations);
-        setMessages(bootstrap.messages);
-        setImages(bootstrap.images);
-        setDocuments(bootstrap.documents);
-        setAppSettings(bootstrap.settings);
-        setTickets(bootstrap.tickets);
-        setClientLogs(bootstrap.logs);
+      const [
+        bootstrap,
+        localConvs,
+        localMsgs,
+        localImgs,
+        localDocs,
+        localSettings,
+        localTickets,
+        localLogs,
+      ] = await Promise.all([
+        fetchAdminBootstrapFromBackend(),
+        db.getConversations(),
+        db.getAllMessages(),
+        db.getAllImageHistory(),
+        db.getDocuments(),
+        db.getSettings(),
+        db.getSupportTickets(),
+        db.getActivityLogs(),
+      ]);
+
+      const cachedSnap = readCachedAdminSnapshot();
+      const hasBackend = Boolean(bootstrap);
+      hasBackendSyncRef.current = hasBackend;
+      setSyncStatus(
+        hasBackend
+          ? 'live'
+          : typeof navigator !== 'undefined' && navigator.onLine
+            ? cachedSnap
+              ? 'cached'
+              : 'offline'
+            : cachedSnap
+              ? 'cached'
+              : 'offline'
+      );
+
+      // 1. Merge Users across backend, cached snapshot, local auth store, and inferred owners
+      const storedLocalUsers = authService.getStoredUsers();
+      const userMapById = new Map<string, UserProfile>();
+      const userIdByEmail = new Map<string, string>();
+      const addUser = (u: UserProfile) => {
+        if (!u?.email) return;
+        const emailLow = u.email.trim().toLowerCase();
+        const existingId = userIdByEmail.get(emailLow);
+        if (existingId && existingId !== u.id) {
+          const prev = userMapById.get(existingId);
+          if (prev) {
+            userMapById.set(existingId, {
+              ...prev,
+              ...u,
+              id: prev.id,
+            });
+            return;
+          }
+        }
+        userIdByEmail.set(emailLow, u.id);
+        const prev = userMapById.get(u.id);
+        userMapById.set(u.id, prev ? { ...prev, ...u } : u);
+      };
+
+      for (const u of storedLocalUsers) addUser(u);
+      if (cachedSnap?.users && !hasBackend) {
+        for (const u of cachedSnap.users) addUser(u);
+      }
+      if (bootstrap?.users) {
+        for (const u of bootstrap.users) addUser(u);
+      }
+
+      // 2. Merge Conversations
+      const convMap = new Map<string, Conversation>();
+      for (const c of localConvs) convMap.set(c.id, c);
+      if (cachedSnap?.conversations && !hasBackend) {
+        for (const c of cachedSnap.conversations) {
+          const prev = convMap.get(c.id);
+          if (!prev || new Date(c.updatedAt) >= new Date(prev.updatedAt)) {
+            convMap.set(c.id, c);
+          }
+        }
+      }
+      if (bootstrap?.conversations) {
+        for (const c of bootstrap.conversations) {
+          const prev = convMap.get(c.id);
+          if (!prev || new Date(c.updatedAt) >= new Date(prev.updatedAt)) {
+            convMap.set(c.id, c);
+          }
+        }
+      }
+
+      // 3. Merge Messages
+      const msgMap = new Map<string, Message>();
+      for (const m of localMsgs) msgMap.set(m.id, m);
+      if (cachedSnap?.messages && !hasBackend) {
+        for (const m of cachedSnap.messages) {
+          if (!msgMap.has(m.id)) msgMap.set(m.id, m);
+        }
+      }
+      if (bootstrap?.messages) {
+        for (const m of bootstrap.messages) {
+          msgMap.set(m.id, m);
+        }
+      }
+
+      // Infer any missing user accounts that have emails on chats/images/tickets
+      const rawImagesPool: GeneratedImageRecord[] = [
+        ...(bootstrap?.images || []),
+        ...(!hasBackend && cachedSnap?.images ? cachedSnap.images : []),
+        ...localImgs,
+      ];
+      for (const rec of rawImagesPool) {
+        if (rec.userEmail) {
+          const low = rec.userEmail.trim().toLowerCase();
+          if (!userIdByEmail.has(low)) {
+            const parts = (rec.userName || low.split('@')[0] || 'User').trim().split(/\s+/);
+            addUser({
+              id: rec.userId && rec.userId !== 'anonymous' ? rec.userId : `inferred-${low}`,
+              firstName: parts[0] || 'User',
+              lastName: parts.slice(1).join(' '),
+              email: rec.userEmail.trim(),
+              role: 'user',
+              createdAt: rec.createdAt || new Date().toISOString(),
+            });
+          }
+        }
+      }
+      for (const conv of convMap.values()) {
+        if (conv.userEmail) {
+          const low = conv.userEmail.trim().toLowerCase();
+          if (!userIdByEmail.has(low)) {
+            const parts = (conv.userName || low.split('@')[0] || 'User').trim().split(/\s+/);
+            addUser({
+              id: conv.userId && conv.userId !== 'anonymous' ? conv.userId : `inferred-${low}`,
+              firstName: parts[0] || 'User',
+              lastName: parts.slice(1).join(' '),
+              email: conv.userEmail.trim(),
+              role: 'user',
+              createdAt: conv.createdAt || new Date().toISOString(),
+            });
+          }
+        }
+      }
+
+      const mergedUsers = Array.from(userMapById.values());
+      const userByIdLookup = new Map(mergedUsers.map((u) => [u.id, u]));
+      const userByEmailLookup = new Map(mergedUsers.map((u) => [u.email.toLowerCase(), u]));
+
+      // Enrich conversations with owner email/name if missing
+      const mergedConversations = Array.from(convMap.values())
+        .map((c) => {
+          const u =
+            (c.userId ? userByIdLookup.get(c.userId) : undefined) ||
+            (c.userEmail ? userByEmailLookup.get(c.userEmail.toLowerCase()) : undefined);
+          if (!u) return c;
+          const fullName = [u.firstName, u.lastName].filter(Boolean).join(' ').trim();
+          return {
+            ...c,
+            userId: c.userId || u.id,
+            userEmail: c.userEmail || u.email,
+            userName: c.userName || fullName || u.email,
+          };
+        })
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+      const convByIdLookup = new Map(mergedConversations.map((c) => [c.id, c]));
+      const mergedMessages = Array.from(msgMap.values());
+
+      // 4. Merge Image Records across backend, cache, IndexedDB, AND chat message attachments
+      const imgMap = new Map<string, GeneratedImageRecord>();
+      const seenConvPromptKeys = new Set<string>();
+      const upsertImage = (rec: GeneratedImageRecord, preferOverwrite: boolean) => {
+        const matchedConv = rec.conversationId ? convByIdLookup.get(rec.conversationId) : undefined;
+        const matchedUser =
+          (rec.userId && rec.userId !== 'anonymous' ? userByIdLookup.get(rec.userId) : undefined) ||
+          (rec.userEmail ? userByEmailLookup.get(rec.userEmail.toLowerCase()) : undefined) ||
+          (matchedConv?.userId ? userByIdLookup.get(matchedConv.userId) : undefined) ||
+          (matchedConv?.userEmail
+            ? userByEmailLookup.get(matchedConv.userEmail.toLowerCase())
+            : undefined);
+        const ownerFullName = matchedUser
+          ? [matchedUser.firstName, matchedUser.lastName].filter(Boolean).join(' ').trim()
+          : '';
+        const enriched: GeneratedImageRecord = {
+          ...rec,
+          userId:
+            rec.userId && rec.userId !== 'anonymous'
+              ? rec.userId
+              : matchedUser?.id || matchedConv?.userId || rec.userId || 'anonymous',
+          userEmail: rec.userEmail || matchedUser?.email || matchedConv?.userEmail,
+          userName: rec.userName || ownerFullName || matchedConv?.userName,
+        };
+        const prev = imgMap.get(enriched.id);
+        if (!prev || preferOverwrite || (!prev.userEmail && enriched.userEmail)) {
+          imgMap.set(enriched.id, enriched);
+        }
+        if (enriched.conversationId && enriched.prompt) {
+          seenConvPromptKeys.add(
+            `${enriched.conversationId}::${enriched.prompt.trim().toLowerCase()}`
+          );
+        }
+      };
+
+      for (const rec of localImgs) upsertImage(rec, false);
+      if (cachedSnap?.images && !hasBackend) {
+        for (const rec of cachedSnap.images) upsertImage(rec, false);
+      }
+      if (bootstrap?.images) {
+        for (const rec of bootstrap.images) upsertImage(rec, true);
+      }
+
+      // Recover any generated images embedded inside chat messages that aren't in imgMap
+      for (const msg of mergedMessages) {
+        const gen = msg.imageGeneration;
+        if (!gen || !Array.isArray(gen.images) || gen.images.length === 0) continue;
+        const key = `${msg.conversationId}::${(gen.prompt || '').trim().toLowerCase()}`;
+        if (seenConvPromptKeys.has(key)) continue;
+        const conv = convByIdLookup.get(msg.conversationId);
+        upsertImage(
+          {
+            id: `chatimg-${msg.id}`,
+            userId: msg.userId || conv?.userId || 'anonymous',
+            userEmail: conv?.userEmail,
+            userName: conv?.userName,
+            conversationId: msg.conversationId,
+            prompt: gen.prompt || 'Chat generated image',
+            style: gen.style || 'Realistic Photography',
+            aspectRatio: gen.aspectRatio || '1:1',
+            quality: gen.quality || 'standard',
+            count: gen.images.length,
+            modelUsed: msg.modelUsed || 'Offnex Image Studio',
+            provider: gen.provider || 'gemini',
+            images: gen.images,
+            createdAt: conv?.updatedAt || conv?.createdAt || new Date().toISOString(),
+          },
+          false
+        );
+      }
+
+      const mergedImages = Array.from(imgMap.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      // 5. Merge Docs, Tickets, Logs
+      const docMap = new Map<string, StoredDocument>();
+      for (const d of localDocs) docMap.set(d.id, d);
+      if (cachedSnap?.documents && !hasBackend) {
+        for (const d of cachedSnap.documents) docMap.set(d.id, d);
+      }
+      if (bootstrap?.documents) {
+        for (const d of bootstrap.documents) docMap.set(d.id, d);
+      }
+      const mergedDocs = Array.from(docMap.values());
+
+      const ticketMap = new Map<string, SupportTicket>();
+      for (const t of localTickets) ticketMap.set(t.id, t);
+      if (cachedSnap?.tickets && !hasBackend) {
+        for (const t of cachedSnap.tickets) ticketMap.set(t.id, t);
+      }
+      if (bootstrap?.tickets) {
+        for (const t of bootstrap.tickets) ticketMap.set(t.id, t);
+      }
+      const mergedTickets = Array.from(ticketMap.values()).sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
+
+      const logMap = new Map<string, AdminActivityLog>();
+      for (const l of localLogs) logMap.set(l.id, l);
+      if (cachedSnap?.logs && !hasBackend) {
+        for (const l of cachedSnap.logs) logMap.set(l.id, l);
+      }
+      if (bootstrap?.logs) {
+        for (const l of bootstrap.logs) logMap.set(l.id, l);
+      }
+      const mergedLogs = Array.from(logMap.values()).sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
+
+      const effectiveSettings = bootstrap?.settings || cachedSnap?.settings || localSettings;
+
+      setUsers(mergedUsers);
+      setConversations(mergedConversations);
+      setMessages(mergedMessages);
+      setImages(mergedImages);
+      setDocuments(mergedDocs);
+      setAppSettings(effectiveSettings);
+      setTickets(mergedTickets);
+      setClientLogs(mergedLogs);
+
+      if (bootstrap?.overview) {
         setOverview(bootstrap.overview);
+      } else {
+        const serverOverview = await fetch('/api/admin/overview')
+          .then((r) => (r.ok ? (r.json() as Promise<AdminOverviewResponse>) : null))
+          .catch(() => null);
+        if (serverOverview) setOverview(serverOverview);
+      }
+
+      if (hasBackend) {
+        writeCachedAdminSnapshot({
+          users: mergedUsers,
+          conversations: mergedConversations,
+          messages: mergedMessages,
+          images: mergedImages,
+          documents: mergedDocs,
+          tickets: mergedTickets,
+          logs: mergedLogs,
+          settings: effectiveSettings,
+          savedAt: new Date().toISOString(),
+        });
         const liveSnap = await fetchLiveSyncState();
         if (liveSnap?.dataRevision) {
           lastAdminRevisionRef.current = liveSnap.dataRevision;
         }
-        return;
-      }
-
-      // Offline fallback from local IndexedDB
-      const [convs, allMsgs, allImgs, docs, settings, storedTickets, cLogs, serverOverview] =
-        await Promise.all([
-          db.getConversations(),
-          db.getAllMessages(),
-          db.getAllImageHistory(),
-          db.getDocuments(),
-          db.getSettings(),
-          db.getSupportTickets(),
-          db.getActivityLogs(),
-          fetch('/api/admin/overview')
-            .then((r) => (r.ok ? (r.json() as Promise<AdminOverviewResponse>) : null))
-            .catch(() => null),
-        ]);
-
-      setUsers(authService.getStoredUsers());
-      setConversations(convs);
-      setMessages(allMsgs);
-      setImages(allImgs);
-      setDocuments(docs);
-      setAppSettings(settings);
-      setTickets(storedTickets);
-      setClientLogs(cLogs);
-      if (serverOverview) {
-        setOverview(serverOverview);
       }
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
     }
   }, []);
 
@@ -198,17 +543,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     loadAllAdminData();
   }, [loadAllAdminData]);
 
-  // Auto-sync Admin dashboard whenever users or other admin tabs update backend data
+  // Auto-sync Admin dashboard whenever backend comes back online or users/admins update data
   useEffect(() => {
     const checkAdminSync = async () => {
-      if (typeof navigator === 'undefined' || !navigator.onLine) return;
+      if (typeof navigator === 'undefined' || !navigator.onLine) {
+        setSyncStatus(readCachedAdminSnapshot() ? 'cached' : 'offline');
+        return;
+      }
+      if (!hasBackendSyncRef.current) {
+        await loadAllAdminData();
+        return;
+      }
       const live = await fetchLiveSyncState();
       if (!live?.dataRevision) return;
-      if (lastAdminRevisionRef.current && lastAdminRevisionRef.current !== live.dataRevision) {
+      if (lastAdminRevisionRef.current !== live.dataRevision) {
         lastAdminRevisionRef.current = live.dataRevision;
         await loadAllAdminData();
-      } else if (!lastAdminRevisionRef.current) {
-        lastAdminRevisionRef.current = live.dataRevision;
       }
     };
 
@@ -221,10 +571,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
     window.addEventListener('focus', onFocus);
     window.addEventListener('online', onFocus);
+    window.addEventListener('offline', onFocus);
     return () => {
       clearInterval(interval);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onFocus);
+      window.removeEventListener('offline', onFocus);
     };
   }, [loadAllAdminData]);
 
@@ -648,6 +1000,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           {/* Right Header Controls */}
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => void loadAllAdminData()}
+              disabled={isRefreshing}
+              title="Sync latest backend users, chats & images"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-semibold text-slate-200 hover:bg-white/10 cursor-pointer whitespace-nowrap shrink-0 disabled:opacity-60"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#A78BFA]' : ''}`} />
+              <span className="hidden md:inline">
+                {syncStatus === 'live' ? 'Live Sync' : syncStatus === 'cached' ? 'Cached' : 'Offline'}
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={onExitAdmin}
@@ -1169,6 +1534,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 overview={overview}
                 logs={combinedLogs}
                 tickets={tickets}
+                syncStatus={syncStatus}
                 onCreateUser={handleCreateUser}
                 onUpdateUserRole={handleUpdateUserRole}
                 onDeleteUser={handleDeleteUser}

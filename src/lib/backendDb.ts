@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 import type {
@@ -16,7 +17,60 @@ import type {
 } from '@/types';
 import { getConfiguredImageModel } from './imageProvider';
 
-const DATA_ROOT = path.resolve(process.cwd(), '.offnex-data');
+const SEED_DATA_ROOT = path.resolve(process.cwd(), '.offnex-data');
+const SEED_IMAGE_FILES_DIR = path.resolve(SEED_DATA_ROOT, 'image-files');
+const TMP_DATA_ROOT = path.resolve(os.tmpdir(), '.offnex-data');
+
+function isDirectoryWritable(dirPath: string): boolean {
+  try {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+    const probe = path.join(dirPath, `.write-test-${process.pid}.tmp`);
+    fs.writeFileSync(probe, '1', 'utf8');
+    fs.unlinkSync(probe);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function seedTmpFromRepoIfNeeded(targetRoot: string): void {
+  try {
+    if (!fs.existsSync(SEED_DATA_ROOT)) return;
+    if (!fs.existsSync(targetRoot)) {
+      fs.mkdirSync(targetRoot, { recursive: true });
+    }
+    for (const entry of fs.readdirSync(SEED_DATA_ROOT)) {
+      const src = path.join(SEED_DATA_ROOT, entry);
+      const dst = path.join(targetRoot, entry);
+      if (entry === 'image-files' && fs.statSync(src).isDirectory()) {
+        if (!fs.existsSync(dst)) fs.mkdirSync(dst, { recursive: true });
+        for (const f of fs.readdirSync(src)) {
+          const sf = path.join(src, f);
+          const df = path.join(dst, f);
+          if (!fs.existsSync(df) && fs.statSync(sf).isFile()) {
+            fs.copyFileSync(sf, df);
+          }
+        }
+      } else if (fs.statSync(src).isFile() && !fs.existsSync(dst)) {
+        fs.copyFileSync(src, dst);
+      }
+    }
+  } catch {
+    // Ignore seed copy failures
+  }
+}
+
+function resolveDataRoot(): string {
+  if (isDirectoryWritable(SEED_DATA_ROOT)) {
+    return SEED_DATA_ROOT;
+  }
+  seedTmpFromRepoIfNeeded(TMP_DATA_ROOT);
+  return TMP_DATA_ROOT;
+}
+
+const DATA_ROOT = resolveDataRoot();
 const IMAGE_FILES_DIR = path.resolve(DATA_ROOT, 'image-files');
 
 const FILES = {
@@ -86,30 +140,45 @@ const globalForBackendDb = globalThis as typeof globalThis & {
 };
 
 function ensureDirs(): void {
-  if (!fs.existsSync(DATA_ROOT)) {
-    fs.mkdirSync(DATA_ROOT, { recursive: true });
-  }
-  if (!fs.existsSync(IMAGE_FILES_DIR)) {
-    fs.mkdirSync(IMAGE_FILES_DIR, { recursive: true });
+  try {
+    if (!fs.existsSync(DATA_ROOT)) {
+      fs.mkdirSync(DATA_ROOT, { recursive: true });
+    }
+    if (!fs.existsSync(IMAGE_FILES_DIR)) {
+      fs.mkdirSync(IMAGE_FILES_DIR, { recursive: true });
+    }
+  } catch {
+    // Continue safely in read-only containers using in-memory state
   }
 }
 
 function writeJsonAtomic(filePath: string, data: unknown): void {
-  ensureDirs();
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`;
-  fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
-  fs.renameSync(tmpPath, filePath);
+  try {
+    ensureDirs();
+    const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+    fs.renameSync(tmpPath, filePath);
+  } catch (err) {
+    console.warn('[backendDb] Non-fatal write warning:', (err as Error)?.message || err);
+  }
 }
 
 function readJsonSafe<T>(filePath: string, fallback: T): T {
-  try {
-    if (!fs.existsSync(filePath)) return fallback;
-    const raw = fs.readFileSync(filePath, 'utf8');
-    if (!raw.trim()) return fallback;
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
+  const candidates =
+    DATA_ROOT === SEED_DATA_ROOT
+      ? [filePath]
+      : [filePath, path.join(SEED_DATA_ROOT, path.basename(filePath))];
+  for (const candidate of candidates) {
+    try {
+      if (!fs.existsSync(candidate)) continue;
+      const raw = fs.readFileSync(candidate, 'utf8');
+      if (!raw.trim()) continue;
+      return JSON.parse(raw) as T;
+    } catch {
+      // Try next candidate or fallback
+    }
   }
+  return fallback;
 }
 
 function readSyncMeta(): SyncMeta {
@@ -377,14 +446,23 @@ function getState(): BackendDbState {
 // ==================== IMAGE FILE PERSISTENCE ====================
 
 export function resolveSafeBackendImagePath(filename: string): string | null {
-  if (!/^[a-zA-Z0-9_-]{4,120}\.(png|jpg|jpeg|webp)$/.test(filename)) {
+  if (!/^[a-zA-Z0-9_-]{4,140}\.(png|jpg|jpeg|webp|webm|mp4)$/.test(filename)) {
     return null;
   }
-  const resolved = path.resolve(IMAGE_FILES_DIR, filename);
-  if (!resolved.startsWith(IMAGE_FILES_DIR + path.sep)) {
-    return null;
+  const primary = path.resolve(IMAGE_FILES_DIR, filename);
+  if (primary.startsWith(IMAGE_FILES_DIR + path.sep) && fs.existsSync(primary)) {
+    return primary;
   }
-  return resolved;
+  if (SEED_IMAGE_FILES_DIR !== IMAGE_FILES_DIR) {
+    const seedPath = path.resolve(SEED_IMAGE_FILES_DIR, filename);
+    if (seedPath.startsWith(SEED_IMAGE_FILES_DIR + path.sep) && fs.existsSync(seedPath)) {
+      return seedPath;
+    }
+  }
+  if (primary.startsWith(IMAGE_FILES_DIR + path.sep)) {
+    return primary;
+  }
+  return null;
 }
 
 function persistImageDataUrl(dataUrl: string, prefix: string): string {
@@ -396,19 +474,50 @@ function persistImageDataUrl(dataUrl: string, prefix: string): string {
     return dataUrl;
   }
 
-  ensureDirs();
-  const rawExt = match[1].toLowerCase();
-  const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
-  const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) || 'img';
-  const fileName = `${safePrefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
-  const fullPath = resolveSafeBackendImagePath(fileName);
-  if (!fullPath) return dataUrl;
+  try {
+    ensureDirs();
+    const rawExt = match[1].toLowerCase();
+    const ext = rawExt === 'jpeg' ? 'jpg' : rawExt;
+    const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) || 'img';
+    const fileName = `${safePrefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+    const fullPath = path.resolve(IMAGE_FILES_DIR, fileName);
+    if (!fullPath.startsWith(IMAGE_FILES_DIR + path.sep)) return dataUrl;
 
-  const buf = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
-  if (buf.length === 0) return dataUrl;
+    const buf = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
+    if (buf.length === 0) return dataUrl;
 
-  fs.writeFileSync(fullPath, buf);
-  return `/api/backend/images/file/${fileName}`;
+    fs.writeFileSync(fullPath, buf);
+    return `/api/backend/images/file/${fileName}`;
+  } catch {
+    return dataUrl;
+  }
+}
+
+function persistVideoDataUrl(dataUrl: string | undefined, prefix: string): string | undefined {
+  if (!dataUrl || typeof dataUrl !== 'string') return dataUrl;
+  if (dataUrl.startsWith('/api/backend/images/file/')) return dataUrl;
+
+  const match = dataUrl.match(/^data:video\/(webm|mp4)(?:;[^,]*)?;base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (!match) {
+    return dataUrl;
+  }
+
+  try {
+    ensureDirs();
+    const ext = match[1].toLowerCase() === 'mp4' ? 'mp4' : 'webm';
+    const safePrefix = prefix.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32) || 'vid';
+    const fileName = `${safePrefix}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+    const fullPath = path.resolve(IMAGE_FILES_DIR, fileName);
+    if (!fullPath.startsWith(IMAGE_FILES_DIR + path.sep)) return dataUrl;
+
+    const buf = Buffer.from(match[2].replace(/\s+/g, ''), 'base64');
+    if (buf.length === 0) return dataUrl;
+
+    fs.writeFileSync(fullPath, buf);
+    return `/api/backend/images/file/${fileName}`;
+  } catch {
+    return dataUrl;
+  }
 }
 
 function deleteDiskImageIfUnused(url: string, state: BackendDbState): void {
@@ -899,7 +1008,7 @@ function enrichImageRecordWithUser(
 }
 
 export function listBackendImages(
-  filter?: string | { userId?: string; userEmail?: string }
+  filter?: string | { userId?: string; userEmail?: string; compact?: boolean }
 ): GeneratedImageRecord[] {
   const state = getState();
   const filterObj =
@@ -932,9 +1041,20 @@ export function listBackendImages(
         })
       : enrichedAll;
 
-  return [...list].sort(
+  const sorted = [...list].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
+
+  if (filterObj?.compact) {
+    return sorted.map((rec) => {
+      if (rec.videoUrl && rec.videoUrl.startsWith('data:video/') && rec.videoUrl.length > 48000) {
+        return { ...rec, videoUrl: undefined };
+      }
+      return rec;
+    });
+  }
+
+  return sorted;
 }
 
 export function saveBackendImageRecord(record: GeneratedImageRecord): GeneratedImageRecord {
@@ -944,11 +1064,15 @@ export function saveBackendImageRecord(record: GeneratedImageRecord): GeneratedI
     mimeType: item.mimeType || 'image/png',
     dataUrl: persistImageDataUrl(item.dataUrl, `gen_${record.id || Date.now()}_${idx}`),
   }));
+  const persistedVideoUrl = record.videoUrl
+    ? persistVideoDataUrl(record.videoUrl, `vid_${record.id || Date.now()}`)
+    : undefined;
 
   const normalized = enrichImageRecordWithUser(
     {
       ...record,
       images: persistedImages,
+      ...(persistedVideoUrl ? { videoUrl: persistedVideoUrl } : {}),
       count: persistedImages.length || record.count || 1,
       createdAt: record.createdAt || new Date().toISOString(),
     },

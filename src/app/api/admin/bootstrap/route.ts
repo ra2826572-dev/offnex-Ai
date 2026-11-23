@@ -55,10 +55,18 @@ export async function GET() {
     return { connected: false, version: undefined, host: config.ollamaHost };
   })();
 
-  const [localSdStatus, ollamaStatus] = await Promise.all([
-    localProvider.getStatus(),
-    ollamaStatusPromise,
-  ]);
+  let localSdStatus = { available: false, endpoint: 'http://127.0.0.1:7860', modelsCount: 0, error: undefined as string | undefined };
+  let ollamaStatus = { connected: false, version: undefined as string | undefined, host: config.ollamaHost };
+  try {
+    const [sdRes, olRes] = await Promise.all([
+      localProvider.getStatus().catch(() => localSdStatus),
+      ollamaStatusPromise.catch(() => ollamaStatus),
+    ]);
+    localSdStatus = { ...sdRes, error: sdRes.error };
+    ollamaStatus = { ...olRes, version: olRes.version };
+  } catch {
+    // Keep non-fatal fallback status
+  }
 
   const logs = getServerLogs();
   const overview = {
@@ -113,7 +121,7 @@ export async function GET() {
     users: listBackendUsers(),
     conversations: listBackendConversations(),
     messages: listBackendMessages(),
-    images: listBackendImages(),
+    images: listBackendImages({ compact: true }),
     documents: listBackendDocuments(),
     tickets: listBackendTickets(),
     logs,

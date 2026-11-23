@@ -13,13 +13,14 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const all = searchParams.get('all') === '1';
+  const compact = searchParams.get('compact') === '1';
   const meta = getRequestUserMeta(req);
   const userId = all ? undefined : searchParams.get('userId') || meta.userId;
   const userEmail = all ? undefined : searchParams.get('userEmail') || meta.userEmail;
 
   return NextResponse.json({
     images: listBackendImages(
-      userId || userEmail ? { userId, userEmail } : undefined
+      userId || userEmail || compact ? { userId, userEmail, compact } : undefined
     ),
   });
 }

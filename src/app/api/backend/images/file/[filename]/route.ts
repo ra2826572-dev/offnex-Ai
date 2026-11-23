@@ -20,6 +20,10 @@ export async function GET(
     ? 'image/png'
     : lower.endsWith('.webp')
     ? 'image/webp'
+    : lower.endsWith('.webm')
+    ? 'video/webm'
+    : lower.endsWith('.mp4')
+    ? 'video/mp4'
     : 'image/jpeg';
 
   const buffer = fs.readFileSync(fullPath);

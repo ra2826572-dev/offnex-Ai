@@ -56,6 +56,7 @@ interface AdminSubViewsProps {
   overview: AdminOverviewResponse | null;
   logs: AdminActivityLog[];
   tickets: SupportTicket[];
+  syncStatus?: 'live' | 'cached' | 'offline';
   onCreateUser: (payload: {
     firstName: string;
     lastName: string;
@@ -92,6 +93,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
   overview,
   logs,
   tickets,
+  syncStatus = 'live',
   onCreateUser,
   onUpdateUserRole,
   onDeleteUser,
@@ -129,14 +131,18 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
   const [imgProviderFilter, setImgProviderFilter] = useState<'all' | 'gemini' | 'openai' | 'local' | 'pinterest'>('all');
   const [selectedImgUserKey, setSelectedImgUserKey] = useState<string>('all');
   const [imgViewMode, setImgViewMode] = useState<'grouped' | 'grid'>('grouped');
+  const [brokenImgIds, setBrokenImgIds] = useState<Record<string, boolean>>({});
   const [previewImg, setPreviewImg] = useState<{
     url: string;
+    videoUrl?: string;
     prompt: string;
     model: string;
+    style?: string;
     ownerName?: string;
     ownerEmail?: string;
     createdAt?: string;
   } | null>(null);
+  const [previewImgBroken, setPreviewImgBroken] = useState(false);
 
   // Models / API config state
   const [testingTarget, setTestingTarget] = useState<string | null>(null);
@@ -611,27 +617,39 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
               {conversations.length} conversations · {messages.length} messages).
             </p>
           </div>
-          <div className="inline-flex bg-[#101426] border border-white/10 rounded-xl p-1 gap-1 shrink-0 self-start sm:self-auto">
-            <button
-              type="button"
-              onClick={() => setChatViewMode('grouped')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                chatViewMode === 'grouped' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <Users className="w-3.5 h-3.5" />
-              By User Email
-            </button>
-            <button
-              type="button"
-              onClick={() => setChatViewMode('table')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                chatViewMode === 'table' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <LayoutList className="w-3.5 h-3.5" />
-              All Chats Table
-            </button>
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            {syncStatus !== 'live' && (
+              <button
+                type="button"
+                onClick={() => void onRefreshAll()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-xs font-semibold text-amber-300 hover:bg-amber-500/25 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Sync Backend
+              </button>
+            )}
+            <div className="inline-flex bg-[#101426] border border-white/10 rounded-xl p-1 gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => setChatViewMode('grouped')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  chatViewMode === 'grouped' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                By User Email
+              </button>
+              <button
+                type="button"
+                onClick={() => setChatViewMode('table')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  chatViewMode === 'table' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <LayoutList className="w-3.5 h-3.5" />
+                All Chats Table
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1086,54 +1104,67 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
     const visibleImgGroups = allImgGroups
       .filter((g) => selectedImgUserKey === 'all' || g.key === selectedImgUserKey)
       .map((g) => {
+        if (!q && imgProviderFilter === 'all') {
+          return {
+            ...g,
+            visibleItems: g.items,
+            matchesFilter: true,
+          };
+        }
         const filteredItems = g.items.filter(matchesImgFilter);
         const groupMatchesQuery =
           !q ||
           g.name.toLowerCase().includes(q) ||
           g.email.toLowerCase().includes(q);
-        const hasFilters = Boolean(q) || imgProviderFilter !== 'all';
+        const showGroup =
+          (imgProviderFilter === 'all' && groupMatchesQuery) || filteredItems.length > 0;
         return {
           ...g,
           visibleItems:
-            hasFilters && !(q && groupMatchesQuery && imgProviderFilter === 'all')
-              ? filteredItems
-              : q && groupMatchesQuery && filteredItems.length === 0
-                ? g.items
-                : filteredItems,
-          matchesFilter:
-            (!q && imgProviderFilter === 'all') ||
-            (imgProviderFilter === 'all' && groupMatchesQuery) ||
-            filteredItems.length > 0,
+            imgProviderFilter === 'all' && groupMatchesQuery && filteredItems.length === 0
+              ? g.items
+              : filteredItems,
+          matchesFilter: showGroup,
         };
       })
       .filter((g) => g.matchesFilter);
 
     const renderImageCard = (item: EnrichedImageItem) => {
       const { rec, ownerName, ownerEmail } = item;
-      const firstImg = rec.images[0]?.dataUrl;
+      const firstImg = rec.images?.[0]?.dataUrl || '';
+      const isBroken = Boolean(brokenImgIds[rec.id]) || !firstImg;
       return (
         <div
           key={rec.id}
           className="rounded-2xl bg-[#0B0E1C] border border-white/10 overflow-hidden flex flex-col"
         >
           <div className="aspect-video bg-[#080B16] relative overflow-hidden group">
-            {firstImg ? (
+            {!isBroken ? (
               <img
                 src={firstImg}
                 alt={rec.prompt}
                 referrerPolicy="no-referrer"
+                onError={() =>
+                  setBrokenImgIds((prev) => (prev[rec.id] ? prev : { ...prev, [rec.id]: true }))
+                }
                 className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-slate-600 text-xs">
-                No preview
+              <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 px-3 text-center bg-gradient-to-br from-[#121733] to-[#080B16]">
+                <ImageIcon className="w-6 h-6 text-[#A78BFA]/70" />
+                <span className="text-[11px] font-medium text-slate-300 line-clamp-1">
+                  {rec.style || 'Generated Media'}
+                </span>
+                <span className="text-[10px] text-slate-500">
+                  {rec.mediaType === 'video' ? 'Video record saved' : 'Prompt record saved'}
+                </span>
               </div>
             )}
-            <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/70 border border-white/10 text-[10px] font-mono uppercase text-slate-200">
+            <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/70 border border-white/10 text-[10px] font-mono uppercase text-slate-200 max-w-[65%] truncate">
               {rec.modelUsed} · {rec.aspectRatio}
             </div>
             <div className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-[#7547FF]/80 text-[10px] font-mono uppercase text-white">
-              {rec.provider}
+              {rec.mediaType === 'video' ? 'video' : rec.provider}
             </div>
           </div>
           <div className="p-3.5 flex-1 flex flex-col justify-between gap-3">
@@ -1150,17 +1181,19 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
             <div className="flex items-center justify-between pt-2 border-t border-white/5">
               <button
                 type="button"
-                onClick={() =>
-                  firstImg &&
+                onClick={() => {
+                  setPreviewImgBroken(false);
                   setPreviewImg({
                     url: firstImg,
+                    videoUrl: rec.mediaType === 'video' ? rec.videoUrl : undefined,
                     prompt: rec.prompt,
                     model: rec.modelUsed,
+                    style: rec.style,
                     ownerName,
                     ownerEmail,
                     createdAt: rec.createdAt,
-                  })
-                }
+                  });
+                }}
                 className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 inline-flex items-center gap-1 cursor-pointer"
               >
                 <Eye className="w-3.5 h-3.5" /> Inspect
@@ -1191,27 +1224,41 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
               {images.length} records).
             </p>
           </div>
-          <div className="inline-flex bg-[#101426] border border-white/10 rounded-xl p-1 gap-1 shrink-0 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             <button
               type="button"
-              onClick={() => setImgViewMode('grouped')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                imgViewMode === 'grouped' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
+              onClick={() => void onRefreshAll()}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer ${
+                syncStatus !== 'live'
+                  ? 'bg-amber-500/15 border-amber-500/30 text-amber-300 hover:bg-amber-500/25'
+                  : 'bg-[#101426] border-white/10 text-slate-200 hover:bg-white/10'
               }`}
             >
-              <Users className="w-3.5 h-3.5" />
-              By User Email
+              <RefreshCw className="w-3.5 h-3.5" />
+              {syncStatus !== 'live' ? 'Sync Backend' : 'Refresh'}
             </button>
-            <button
-              type="button"
-              onClick={() => setImgViewMode('grid')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                imgViewMode === 'grid' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <LayoutGrid className="w-3.5 h-3.5" />
-              All Images Grid
-            </button>
+            <div className="inline-flex bg-[#101426] border border-white/10 rounded-xl p-1 gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => setImgViewMode('grouped')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  imgViewMode === 'grouped' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                By User Email
+              </button>
+              <button
+                type="button"
+                onClick={() => setImgViewMode('grid')}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                  imgViewMode === 'grid' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                All Images Grid
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1391,13 +1438,34 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
                   <X className="w-4 h-4" />
                 </button>
               </div>
-              <div className="bg-black flex items-center justify-center max-h-[65vh] overflow-hidden">
-                <img
-                  src={previewImg.url}
-                  alt={previewImg.prompt}
-                  referrerPolicy="no-referrer"
-                  className="max-h-[65vh] object-contain"
-                />
+              <div className="bg-black flex items-center justify-center max-h-[65vh] overflow-hidden min-h-[220px]">
+                {previewImg.videoUrl ? (
+                  <video
+                    src={previewImg.videoUrl}
+                    poster={previewImg.url || undefined}
+                    controls
+                    playsInline
+                    className="max-h-[65vh] w-full object-contain"
+                  />
+                ) : previewImg.url && !previewImgBroken ? (
+                  <img
+                    src={previewImg.url}
+                    alt={previewImg.prompt}
+                    referrerPolicy="no-referrer"
+                    onError={() => setPreviewImgBroken(true)}
+                    className="max-h-[65vh] object-contain"
+                  />
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-2 py-12 px-6 text-center text-slate-400">
+                    <ImageIcon className="w-10 h-10 text-[#A78BFA]/70" />
+                    <p className="text-sm font-medium text-slate-200">
+                      {previewImg.style || 'Generated Media Record'}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      Image metadata &amp; owner email are saved on backend, but the temporary file is unavailable.
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="p-4 text-xs text-slate-300">{previewImg.prompt}</div>
             </div>
