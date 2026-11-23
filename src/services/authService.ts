@@ -8,6 +8,35 @@ const SESSION_COOKIE_KEY = 'offnex_active_user';
 
 const DEFAULT_PASSWORD_HASH = 'b31a1d098825045aefb03dea941499ff98c4648566ac72b07dd3471c9de80732';
 const DEFAULT_ADMIN_PASSWORD_HASH = 'cdbd26c0c05e86b7b8dceeecad9c44cfc11d4eba2f6eb7d40c19d227c44bdacd';
+const NETWORK_TIMEOUT_MS = 4500;
+
+async function withTimeout<T>(promise: PromiseLike<T>, ms: number = NETWORK_TIMEOUT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Network request timed out')), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  ms: number = NETWORK_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export const DEFAULT_SEED_USERS: UserProfile[] = [
   {
@@ -118,7 +147,7 @@ export class LocalAuthService {
 
     // Sync active session and load backend users cache
     if (this.currentUser?.email) {
-      fetch('/api/auth/sync', {
+      fetchWithTimeout('/api/auth/sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -133,7 +162,7 @@ export class LocalAuthService {
       }).catch(() => undefined);
     }
 
-    fetch('/api/admin/users', { cache: 'no-store' })
+    fetchWithTimeout('/api/admin/users', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((data: { users?: UserProfile[] } | null) => {
         if (data?.users && Array.isArray(data.users) && data.users.length > 0) {
@@ -153,14 +182,16 @@ export class LocalAuthService {
     if (!supabase) return;
 
     try {
-      const { data } = await supabase.auth.getUser();
+      const { data } = await withTimeout(supabase.auth.getUser());
       if (data?.user?.email) {
         const meta = (data.user.user_metadata || {}) as Record<string, string>;
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('id, first_name, last_name, email, role, avatar_url, created_at, last_login_at')
-          .eq('id', data.user.id)
-          .maybeSingle();
+        const { data: profile } = await withTimeout(
+          supabase
+            .from('profiles')
+            .select('id, first_name, last_name, email, role, avatar_url, created_at, last_login_at')
+            .eq('id', data.user.id)
+            .maybeSingle()
+        );
 
         const syncedUser: UserProfile = {
           id: data.user.id,
@@ -309,10 +340,12 @@ export class LocalAuthService {
       const supabase = getSupabaseBrowserClient();
       if (supabase) {
         try {
-          const { data, error } = await supabase.auth.signInWithPassword({
-            email: cleanEmail,
-            password,
-          });
+          const { data, error } = await withTimeout(
+            supabase.auth.signInWithPassword({
+              email: cleanEmail,
+              password,
+            })
+          );
 
           if (error) {
             const msg = (error.message || '').toLowerCase();
@@ -339,17 +372,19 @@ export class LocalAuthService {
 
             // Auto-register any new email into Supabase on Sign In so any email works seamlessly
             if (msg.includes('invalid login credentials')) {
-              const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-                email: cleanEmail,
-                password,
-                options: {
-                  data: {
-                    first_name: fName,
-                    last_name: lName,
-                    role: 'user',
+              const { data: signUpData, error: signUpError } = await withTimeout(
+                supabase.auth.signUp({
+                  email: cleanEmail,
+                  password,
+                  options: {
+                    data: {
+                      first_name: fName,
+                      last_name: lName,
+                      role: 'user',
+                    },
                   },
-                },
-              });
+                })
+              );
 
               if (signUpError) {
                 const errLower = signUpError.message.toLowerCase();
@@ -518,7 +553,7 @@ export class LocalAuthService {
     // Persistent backend login & auto-sync when online
     if (typeof window !== 'undefined' && navigator.onLine) {
       try {
-        const resp = await fetch('/api/auth/sync', {
+        const resp = await fetchWithTimeout('/api/auth/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -527,26 +562,28 @@ export class LocalAuthService {
             password,
           }),
         });
-        const backendRes = (await resp.json().catch(() => null)) as {
-          success?: boolean;
-          user?: UserProfile;
-          error?: string;
-        } | null;
+        if (resp.status < 500) {
+          const backendRes = (await resp.json().catch(() => null)) as {
+            success?: boolean;
+            user?: UserProfile;
+            error?: string;
+          } | null;
 
-        if (backendRes) {
-          if (!backendRes.success) {
-            return { success: false, error: backendRes.error || 'Incorrect password.' };
-          }
-          if (backendRes.user) {
-            const inputHash = await this.hashPassword(password || 'password123');
-            const users = this.ensureSeedUsers().filter(
-              (u) => u.email.toLowerCase() !== cleanEmail
-            );
-            users.push({ ...backendRes.user, passwordHash: inputHash });
-            this.saveStoredUsers(users);
-            void rememberMe;
-            this.persistSession(backendRes.user);
-            return { success: true, user: backendRes.user };
+          if (backendRes) {
+            if (!backendRes.success) {
+              return { success: false, error: backendRes.error || 'Incorrect password.' };
+            }
+            if (backendRes.user) {
+              const inputHash = await this.hashPassword(password || 'password123');
+              const users = this.ensureSeedUsers().filter(
+                (u) => u.email.toLowerCase() !== cleanEmail
+              );
+              users.push({ ...backendRes.user, passwordHash: inputHash });
+              this.saveStoredUsers(users);
+              void rememberMe;
+              this.persistSession(backendRes.user);
+              return { success: true, user: backendRes.user };
+            }
           }
         }
       } catch {
@@ -628,7 +665,7 @@ export class LocalAuthService {
     needsEmailConfirmation?: boolean;
     message?: string;
   }> {
-    await this.init();
+    this.initSync();
     const cleanEmail = data.email.trim().toLowerCase();
     const cleanFirst = data.firstName.trim();
     const cleanLast = data.lastName.trim();
@@ -652,17 +689,19 @@ export class LocalAuthService {
       const supabase = getSupabaseBrowserClient();
       if (supabase) {
         try {
-          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-            email: cleanEmail,
-            password: data.password,
-            options: {
-              data: {
-                first_name: cleanFirst,
-                last_name: cleanLast,
-                role: data.role,
+          const { data: signUpData, error: signUpError } = await withTimeout(
+            supabase.auth.signUp({
+              email: cleanEmail,
+              password: data.password,
+              options: {
+                data: {
+                  first_name: cleanFirst,
+                  last_name: cleanLast,
+                  role: data.role,
+                },
               },
-            },
-          });
+            })
+          );
 
           if (signUpError) {
             const errLower = signUpError.message.toLowerCase();
@@ -740,7 +779,7 @@ export class LocalAuthService {
 
     if (typeof window !== 'undefined' && navigator.onLine) {
       try {
-        const resp = await fetch('/api/auth/sync', {
+        const resp = await fetchWithTimeout('/api/auth/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -753,17 +792,19 @@ export class LocalAuthService {
             role: data.role,
           }),
         });
-        const backendRes = (await resp.json().catch(() => null)) as {
-          success?: boolean;
-          user?: UserProfile;
-          error?: string;
-        } | null;
-        if (backendRes) {
-          if (!backendRes.success) {
-            return { success: false, error: backendRes.error || 'Could not register account.' };
-          }
-          if (backendRes.user) {
-            newUser = { ...backendRes.user, passwordHash: hash };
+        if (resp.status < 500) {
+          const backendRes = (await resp.json().catch(() => null)) as {
+            success?: boolean;
+            user?: UserProfile;
+            error?: string;
+          } | null;
+          if (backendRes) {
+            if (!backendRes.success) {
+              return { success: false, error: backendRes.error || 'Could not register account.' };
+            }
+            if (backendRes.user) {
+              newUser = { ...backendRes.user, passwordHash: hash };
+            }
           }
         }
       } catch {
@@ -816,7 +857,7 @@ export class LocalAuthService {
   }
 
   public async resetPassword(email: string, newPass: string): Promise<{ success: boolean; error?: string }> {
-    await this.init();
+    this.initSync();
     const cleanEmail = email.trim().toLowerCase();
 
     if (!newPass || newPass.length < 8) {
@@ -825,7 +866,7 @@ export class LocalAuthService {
 
     if (typeof window !== 'undefined' && navigator.onLine) {
       try {
-        const resp = await fetch('/api/auth/sync', {
+        const resp = await fetchWithTimeout('/api/auth/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -834,12 +875,14 @@ export class LocalAuthService {
             newPassword: newPass,
           }),
         });
-        const backendRes = (await resp.json().catch(() => null)) as {
-          success?: boolean;
-          error?: string;
-        } | null;
-        if (backendRes && !backendRes.success) {
-          return { success: false, error: backendRes.error || 'No user found with this email.' };
+        if (resp.status < 500) {
+          const backendRes = (await resp.json().catch(() => null)) as {
+            success?: boolean;
+            error?: string;
+          } | null;
+          if (backendRes && !backendRes.success) {
+            return { success: false, error: backendRes.error || 'No user found with this email.' };
+          }
         }
       } catch {
         // Fall through to local update

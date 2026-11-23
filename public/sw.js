@@ -1,14 +1,17 @@
-const CACHE_NAME = 'offnex-ai-shell-v6';
+const CACHE_NAME = 'offnex-ai-shell-v7';
 const FALLBACK_URL = '/__offline_shell__';
 const CORE_PRECACHE_URLS = [
   '/',
+  '/admin',
   '/manifest.webmanifest',
   '/icon.png',
+  '/apple-icon.png',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
   '/pwa-maskable-512x512.png',
   '/apple-touch-icon.png',
   '/assets/offnex_icon_square.png',
+  '/sw-register.js',
 ];
 const SECONDARY_URLS = ['/admin'];
 
@@ -82,36 +85,45 @@ function isValidCacheableAsset(requestUrl, response) {
   return true;
 }
 
+function addAssetIfAllowed(discovered, raw) {
+  const clean = (raw || '').replace(/&amp;/g, '&').trim();
+  if (!clean || clean.startsWith('data:') || clean.startsWith('blob:') || clean.startsWith('javascript:')) {
+    return;
+  }
+  try {
+    const parsed = new URL(clean, self.location.origin);
+    if (parsed.origin !== self.location.origin) return;
+    if (
+      parsed.pathname === '/sw.js' ||
+      parsed.pathname.startsWith('/api/') ||
+      parsed.pathname.startsWith('/_next/webpack-hmr')
+    ) {
+      return;
+    }
+    if (
+      parsed.pathname.startsWith('/_next/static/') ||
+      parsed.pathname.startsWith('/assets/') ||
+      parsed.pathname.startsWith('/images/') ||
+      /\.(js|css|png|jpg|jpeg|webp|svg|ico|woff|woff2|webmanifest)$/i.test(parsed.pathname)
+    ) {
+      discovered.add(parsed.href);
+    }
+  } catch {
+    // Ignore malformed URLs
+  }
+}
+
 function extractAssetsFromHtml(htmlText) {
   const discovered = new Set();
   const attrRegex = /(?:src|href)=["']([^"']+)["']/gi;
   let match;
   while ((match = attrRegex.exec(htmlText)) !== null) {
-    const raw = (match[1] || '').replace(/&amp;/g, '&').trim();
-    if (!raw || raw.startsWith('data:') || raw.startsWith('blob:') || raw.startsWith('javascript:')) {
-      continue;
-    }
-    try {
-      const parsed = new URL(raw, self.location.origin);
-      if (parsed.origin !== self.location.origin) continue;
-      if (
-        parsed.pathname === '/sw.js' ||
-        parsed.pathname.startsWith('/api/') ||
-        parsed.pathname.startsWith('/_next/webpack-hmr')
-      ) {
-        continue;
-      }
-      if (
-        parsed.pathname.startsWith('/_next/static/') ||
-        parsed.pathname.startsWith('/assets/') ||
-        parsed.pathname.startsWith('/images/') ||
-        /\.(js|css|png|jpg|jpeg|webp|svg|ico|woff|woff2|webmanifest)$/i.test(parsed.pathname)
-      ) {
-        discovered.add(parsed.href);
-      }
-    } catch {
-      // Ignore malformed URLs
-    }
+    addAssetIfAllowed(discovered, match[1]);
+  }
+  // Also catch Next.js Flight inline script chunk references
+  const staticRegex = /\/_next\/static\/[^"'\s<>\\]+/gi;
+  while ((match = staticRegex.exec(htmlText)) !== null) {
+    addAssetIfAllowed(discovered, match[0]);
   }
   return Array.from(discovered);
 }
@@ -169,7 +181,7 @@ async function cacheUrlsSafely(cache, urls, forceRefreshPages = false) {
             credentials: 'same-origin',
             cache: isPageRoute ? 'reload' : 'default',
           });
-          const res = await fetchWithTimeout(req, isPageRoute ? 6000 : 5000);
+          const res = await fetchWithTimeout(req, isPageRoute ? 9000 : 7000);
           if (!res || !res.ok) return;
 
           const ct = (res.headers.get('content-type') || '').toLowerCase();
@@ -202,26 +214,39 @@ async function refreshFullShellCache(cache, extraUrls = [], includeSecondary = t
   const discoveredUrls = [];
   const routesToFetch = includeSecondary ? ['/', '/admin'] : ['/'];
 
-  for (const pageRoute of routesToFetch) {
-    try {
-      const req = new Request(pageRoute, { credentials: 'same-origin', cache: 'reload' });
-      const res = await fetchWithTimeout(req, 6000);
-      if (res && res.ok && (res.headers.get('content-type') || '').toLowerCase().includes('text/html')) {
-        const clean = await toCleanCacheableResponse(res);
-        if (clean) {
-          await cache.put(pageRoute, clean.clone());
-          const html = await clean.clone().text();
-          discoveredUrls.push(...extractAssetsFromHtml(html));
+  await Promise.allSettled(
+    routesToFetch.map(async (pageRoute) => {
+      try {
+        const req = new Request(pageRoute, { credentials: 'same-origin', cache: 'reload' });
+        const res = await fetchWithTimeout(req, 10000);
+        if (
+          res &&
+          res.ok &&
+          (res.headers.get('content-type') || '').toLowerCase().includes('text/html')
+        ) {
+          const clean = await toCleanCacheableResponse(res);
+          if (clean) {
+            await cache.put(pageRoute, clean.clone());
+            const fullUrl = new URL(pageRoute, self.location.origin).href;
+            await cache.put(fullUrl, clean.clone());
+            const html = await clean.clone().text();
+            discoveredUrls.push(...extractAssetsFromHtml(html));
+          }
         }
+      } catch {
+        // Continue caching known URLs
       }
-    } catch {
-      // Continue caching known URLs
-    }
-  }
+    })
+  );
 
   await cacheUrlsSafely(
     cache,
-    [...CORE_PRECACHE_URLS, ...(includeSecondary ? SECONDARY_URLS : []), ...discoveredUrls, ...extraUrls],
+    [
+      ...CORE_PRECACHE_URLS,
+      ...(includeSecondary ? SECONDARY_URLS : []),
+      ...discoveredUrls,
+      ...extraUrls,
+    ],
     false
   );
 }
@@ -232,8 +257,8 @@ self.addEventListener('install', (event) => {
       const cache = await caches.open(CACHE_NAME);
       await cache.put(FALLBACK_URL, buildEmergencyFallbackResponse());
 
-      // Fast install: cache '/' and all its HTML-referenced JS/CSS chunks immediately
-      await refreshFullShellCache(cache, [], false);
+      // Precache '/' + '/admin' and all HTML-referenced JS/CSS chunks + icons immediately on install
+      await refreshFullShellCache(cache, [], true);
       await self.skipWaiting();
     })()
   );
@@ -246,8 +271,11 @@ self.addEventListener('activate', (event) => {
       await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
       await self.clients.claim();
 
-      // Lazily warm /admin in background without blocking activation
-      caches.open(CACHE_NAME).then((cache) => cacheUrlsSafely(cache, SECONDARY_URLS, false)).catch(() => undefined);
+      // Ensure full shell & /admin assets are warmed right after activation
+      caches
+        .open(CACHE_NAME)
+        .then((cache) => refreshFullShellCache(cache, [], true))
+        .catch(() => undefined);
 
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const client of clients) {
@@ -293,10 +321,9 @@ self.addEventListener('message', (event) => {
     event.waitUntil(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
-        // Ensure '/' is cached if missing
         const hasRoot = await cache.match('/', { ignoreSearch: true });
         if (!hasRoot) {
-          await refreshFullShellCache(cache, data.urls, false);
+          await refreshFullShellCache(cache, data.urls, true);
         } else {
           await cacheUrlsSafely(cache, data.urls, false);
         }
@@ -355,7 +382,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 1. HTML Page Navigations — Offline-safe with clean non-redirected cache response
+  // 1. HTML Page Navigations — Offline-first safety with fast background/timeout refresh
   if (request.mode === 'navigate' || request.destination === 'document') {
     event.respondWith(
       (async () => {
@@ -371,16 +398,20 @@ self.addEventListener('fetch', (event) => {
           if (match) {
             return (await toCleanCacheableResponse(match)) || match;
           }
-          return buildEmergencyFallbackResponse();
+          return null;
         };
+
+        const cachedDoc = await findCachedNavigation();
 
         // When browser knows internet is off, serve cached app shell immediately
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-          return await findCachedNavigation();
+          return cachedDoc || buildEmergencyFallbackResponse();
         }
 
+        // Try network with shorter timeout when cached shell already exists so flaky Wi-Fi never stalls PWA launch
+        const timeoutMs = cachedDoc ? 2200 : 8000;
         try {
-          const networkResponse = await fetchWithTimeout(request, 3500);
+          const networkResponse = await fetchWithTimeout(request, timeoutMs);
           if (networkResponse && networkResponse.ok) {
             const ct = (networkResponse.headers.get('content-type') || '').toLowerCase();
             if (ct.includes('text/html')) {
@@ -395,9 +426,9 @@ self.addEventListener('fetch', (event) => {
             }
             return networkResponse;
           }
-          return await findCachedNavigation();
+          return cachedDoc || buildEmergencyFallbackResponse();
         } catch {
-          return await findCachedNavigation();
+          return cachedDoc || buildEmergencyFallbackResponse();
         }
       })()
     );
@@ -413,7 +444,7 @@ self.addEventListener('fetch', (event) => {
           return (await cache.match(request)) || Response.error();
         }
         try {
-          const res = await fetchWithTimeout(request, 3500);
+          const res = await fetchWithTimeout(request, 2500);
           if (res && res.ok) {
             await cache.put(request, res.clone()).catch(() => undefined);
           }
@@ -431,6 +462,7 @@ self.addEventListener('fetch', (event) => {
     url.pathname.startsWith('/_next/image') ||
     url.pathname.startsWith('/assets/') ||
     url.pathname.startsWith('/images/') ||
+    url.pathname === '/sw-register.js' ||
     /\.(png|jpg|jpeg|webp|svg|ico|woff|woff2|css|js|mjs|webmanifest)$/i.test(url.pathname);
 
   if (!isStaticAsset) return;
@@ -444,25 +476,28 @@ self.addEventListener('fetch', (event) => {
         (await cache.match(request, { ignoreSearch: true })) ||
         (await cache.match(url.pathname));
 
+      const cached = await matchCached();
+
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-        const offlineAsset = await matchCached();
-        if (offlineAsset) return offlineAsset;
+        return cached || Response.error();
       }
 
       if (IS_DEV_HOST) {
+        // Use fast timeout when cached exists so offline/broken router never hangs chunk loading
         try {
-          const response = await fetchWithTimeout(request, 3500);
+          const response = await fetchWithTimeout(request, cached ? 900 : 4000);
           if (isValidCacheableAsset(url, response)) {
             await cache.put(request, response.clone()).catch(() => undefined);
+            return response;
           }
+          if (cached) return cached;
           return response;
         } catch {
-          return (await matchCached()) || Response.error();
+          return cached || Response.error();
         }
       }
 
-      const cached = await matchCached();
-      const networkPromise = fetch(request)
+      const networkPromise = fetchWithTimeout(request, 6000)
         .then((response) => {
           if (isValidCacheableAsset(url, response)) {
             cache.put(request, response.clone()).catch(() => undefined);

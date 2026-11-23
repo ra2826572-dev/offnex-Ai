@@ -28,7 +28,20 @@ function notifySubscribers() {
 
 function collectRuntimeAssetUrls(extraUrls: string[] = []): string[] {
   if (typeof window === 'undefined') return [];
-  const urls = new Set<string>(['/', '/admin', '/manifest.webmanifest', ...extraUrls]);
+  const urls = new Set<string>([
+    '/',
+    '/admin',
+    '/manifest.webmanifest',
+    '/icon.png',
+    '/apple-icon.png',
+    '/pwa-192x192.png',
+    '/pwa-512x512.png',
+    '/pwa-maskable-512x512.png',
+    '/apple-touch-icon.png',
+    '/assets/offnex_icon_square.png',
+    '/sw-register.js',
+    ...extraUrls,
+  ]);
 
   try {
     urls.add(window.location.href);
@@ -108,7 +121,7 @@ export async function warmOfflineAppCache(
           ready: data?.ready !== false,
           controlled: Boolean(navigator.serviceWorker.controller),
           cachedCount: data?.cachedCount || urls.length,
-          cacheName: data?.cacheName || 'offnex-ai-shell-v6',
+          cacheName: data?.cacheName || 'offnex-ai-shell-v7',
         });
       };
       worker.postMessage(
@@ -149,7 +162,7 @@ export async function getOfflineCacheStatus(): Promise<OfflineCacheStatus | null
             ready: Boolean(data?.ready),
             controlled: Boolean(navigator.serviceWorker.controller),
             cachedCount: data?.cachedCount || 0,
-            cacheName: data?.cacheName || 'offnex-ai-shell-v6',
+            cacheName: data?.cacheName || 'offnex-ai-shell-v7',
           });
         };
         worker.postMessage({ type: 'PING_CACHE_STATUS' }, [channel.port2]);
@@ -163,7 +176,7 @@ export async function getOfflineCacheStatus(): Promise<OfflineCacheStatus | null
   try {
     if ('caches' in window) {
       const cacheNames = await caches.keys();
-      const targetName = cacheNames.find((n) => n.startsWith('offnex-ai-shell')) || 'offnex-ai-shell-v6';
+      const targetName = cacheNames.find((n) => n.startsWith('offnex-ai-shell')) || 'offnex-ai-shell-v7';
       const cache = await caches.open(targetName);
       const keys = await cache.keys();
       const rootMatch = await cache.match('/', { ignoreSearch: true });
@@ -198,6 +211,9 @@ export function initPWAListeners() {
   const handleAppInstalled = () => {
     globalInstalled = true;
     globalDeferredPrompt = null;
+    if (navigator.onLine) {
+      void warmOfflineAppCache([], true);
+    }
     notifySubscribers();
   };
 
@@ -310,6 +326,9 @@ export function usePWAInstall() {
       if (outcome === 'accepted') {
         globalInstalled = true;
         globalDeferredPrompt = null;
+        if (navigator.onLine) {
+          void warmOfflineAppCache([], true);
+        }
         notifySubscribers();
         return 'accepted';
       }

@@ -3,6 +3,7 @@
 import React from 'react';
 import { Settings as SettingsIcon, LogOut, Sun, Moon, Wifi, WifiOff } from 'lucide-react';
 import { NavigationTab, UserProfile } from '../types';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface DesktopHeaderProps {
   activeTab: NavigationTab;
@@ -75,8 +76,9 @@ export const DesktopHeader: React.FC<DesktopHeaderProps> = ({
         </button>
       </div>
 
-      {/* Right: User Status, Theme & Settings */}
+      {/* Right: Install, User Status, Theme & Settings */}
       <div className="flex items-center gap-2 shrink-0">
+        <PWAInstallButton variant="compact" />
         {currentUser && (
           <button
             type="button"

@@ -52,8 +52,10 @@ export class LocalAIEngine {
       this.ollamaAvailable = false;
       return { connected: false };
     }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
     try {
-      const res = await fetch('/api/ollama/status').catch(() => null);
+      const res = await fetch('/api/ollama/status', { signal: controller.signal }).catch(() => null);
       if (res && res.ok) {
         const data = await res.json();
         this.ollamaAvailable = data.connected;
@@ -62,6 +64,8 @@ export class LocalAIEngine {
       }
     } catch {
       // offline / unavailable
+    } finally {
+      clearTimeout(timer);
     }
     this.ollamaAvailable = false;
     return { connected: false };
@@ -77,8 +81,10 @@ export class LocalAIEngine {
 
   public async fetchHardwareInfo(): Promise<SystemHardwareInfo> {
     if (typeof navigator === 'undefined' || navigator.onLine) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2500);
       try {
-        const res = await fetch('/api/system/info');
+        const res = await fetch('/api/system/info', { signal: controller.signal });
         if (res.ok) {
           const data = await res.json();
           this.hardwareInfo = data;
@@ -86,6 +92,8 @@ export class LocalAIEngine {
         }
       } catch {
         // Fallback client estimates
+      } finally {
+        clearTimeout(timer);
       }
     }
     const fallback: SystemHardwareInfo = {
@@ -135,6 +143,8 @@ export class LocalAIEngine {
       temperature?: number;
     }
   ): Promise<string | null> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
     try {
       const messages = [
         ...(context?.history || []).slice(-12).map((m) => ({
@@ -146,6 +156,7 @@ export class LocalAIEngine {
       const res = await fetch('/api/ollama/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           model: this.activeModel.startsWith('gemini-') ? 'gemma2:2b' : this.activeModel,
           messages,
@@ -159,6 +170,8 @@ export class LocalAIEngine {
       return typeof content === 'string' && content.trim() ? content.trim() : null;
     } catch {
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   }
 
@@ -203,11 +216,14 @@ export class LocalAIEngine {
       }
     }
 
-    // 3. Call Server-Side Gemini API when online
+    // 3. Call Server-Side Gemini API when online (with timeout + automatic offline fallback)
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
     try {
       const response = await fetch('/api/gemini/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
           prompt,
           model: this.activeModel.startsWith('gemini-') ? this.activeModel : 'gemini-3.1-flash-lite',
@@ -229,7 +245,19 @@ export class LocalAIEngine {
         };
       }
 
-      // If Gemini failed (e.g. key issue), try connected local Ollama first
+      // If network/proxy/SW returned 5xx or offline status, seamlessly switch to offline engine
+      if (response.status >= 500 || response.status === 0 || data.code === 'offline') {
+        if (this.ollamaAvailable) {
+          const ollamaReply = await this.tryOllamaChat(prompt, context);
+          if (ollamaReply) {
+            await this.streamTextToCallback(ollamaReply, onToken);
+            return { text: ollamaReply, suggestedActions: ['Summary', 'More Details'] };
+          }
+        }
+        return this.generateOfflineResponse(prompt, context, onToken);
+      }
+
+      // If Gemini failed (e.g. key issue), try connected local Ollama first, then offline AI engine
       if (this.ollamaAvailable) {
         const ollamaReply = await this.tryOllamaChat(prompt, context);
         if (ollamaReply) {
@@ -238,14 +266,11 @@ export class LocalAIEngine {
         }
       }
 
-      const errorText =
-        data.error ||
-        `AI service returned HTTP ${response.status}. Please check your Gemini API key in Settings > Secrets.`;
-      await this.streamTextToCallback(errorText, onToken);
-      return {
-        text: errorText,
-        suggestedActions: ['Retry'],
-      };
+      if (data.error) {
+        return this.generateOfflineResponse(prompt, context, onToken);
+      }
+
+      return this.generateOfflineResponse(prompt, context, onToken);
     } catch (err) {
       console.warn('Gemini API request network error, switching cleanly to Offline AI Engine:', err);
       if (this.ollamaAvailable) {
@@ -256,6 +281,8 @@ export class LocalAIEngine {
         }
       }
       return this.generateOfflineResponse(prompt, context, onToken);
+    } finally {
+      clearTimeout(timer);
     }
   }
 

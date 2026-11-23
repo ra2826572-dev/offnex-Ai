@@ -54,6 +54,7 @@ import { ModelManagerModal } from './ModelManagerModal';
 import { MobileBottomNav } from './MobileBottomNav';
 import { MobileDrawer } from './MobileDrawer';
 import { AuthPage } from './auth/AuthPage';
+import { PWAInstallButton } from './PWAInstallButton';
 import { AlertTriangle, Menu, RefreshCw, Wifi, WifiOff, Sparkles, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { initPWAListeners, warmOfflineAppCache } from '../hooks/usePWAInstall';
@@ -1737,23 +1738,26 @@ export function OfflineGptWorkspace() {
             <span>Offnex</span> <span className="text-[#287BFF]">Ai</span>
           </span>
         </div>
-        <button
-          type="button"
-          onClick={handleToggleOfflineMode}
-          title="Tap to switch Offline / Online Mode"
-          className={`flex items-center gap-1.5 text-[10px] font-medium ${
-            settings.offlineStrict || !isNetworkOnline
-              ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25'
-              : 'text-blue-400 bg-blue-500/10 border-blue-500/25'
-          } px-2.5 py-1 rounded-full border shrink-0 whitespace-nowrap cursor-pointer transition-colors`}
-        >
-          {settings.offlineStrict || !isNetworkOnline ? (
-            <WifiOff className="w-3 h-3 shrink-0" />
-          ) : (
-            <Wifi className="w-3 h-3 shrink-0" />
-          )}
-          <span>{settings.offlineStrict || !isNetworkOnline ? 'Offline' : 'Online'}</span>
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <PWAInstallButton variant="compact" />
+          <button
+            type="button"
+            onClick={handleToggleOfflineMode}
+            title="Tap to switch Offline / Online Mode"
+            className={`flex items-center gap-1.5 text-[10px] font-medium ${
+              settings.offlineStrict || !isNetworkOnline
+                ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25'
+                : 'text-blue-400 bg-blue-500/10 border-blue-500/25'
+            } px-2.5 py-1 rounded-full border shrink-0 whitespace-nowrap cursor-pointer transition-colors`}
+          >
+            {settings.offlineStrict || !isNetworkOnline ? (
+              <WifiOff className="w-3 h-3 shrink-0" />
+            ) : (
+              <Wifi className="w-3 h-3 shrink-0" />
+            )}
+            <span>{settings.offlineStrict || !isNetworkOnline ? 'Offline' : 'Online'}</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. Main Three-Column Workspace */}

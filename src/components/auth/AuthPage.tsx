@@ -16,6 +16,7 @@ import { AuthBranding } from './AuthBranding';
 import { SignInForm } from './SignInForm';
 import { SignUpForm } from './SignUpForm';
 import { ForgotPasswordModal } from './ForgotPasswordModal';
+import { PWAInstallButton } from '../PWAInstallButton';
 
 interface AuthPageProps {
   initialMode?: AuthMode;
@@ -89,15 +90,18 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </span>
               </div>
 
-              <button
-                type="button"
-                onClick={handleToggleTheme}
-                title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-                aria-label={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-[#10132B]/90 hover:bg-[#1A1F3E] border border-purple-500/30 text-gray-300 hover:text-white transition-all cursor-pointer shadow-md active:scale-95"
-              >
-                {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-purple-300" />}
-              </button>
+              <div className="flex items-center gap-2 ml-auto">
+                <PWAInstallButton variant="compact" />
+                <button
+                  type="button"
+                  onClick={handleToggleTheme}
+                  title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                  aria-label={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+                  className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl bg-[#10132B]/90 hover:bg-[#1A1F3E] border border-purple-500/30 text-gray-300 hover:text-white transition-all cursor-pointer shadow-md active:scale-95"
+                >
+                  {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-purple-300" />}
+                </button>
+              </div>
             </div>
 
             {/* Glassmorphism Auth Card */}
