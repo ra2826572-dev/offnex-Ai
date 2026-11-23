@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import React from 'react';
 import './globals.css';
+import { OfflineBootstrap } from '@/components/OfflineBootstrap';
 
 export const metadata: Metadata = {
   title: 'OfflineGPT - Your AI. Your Device. Your Freedom.',
@@ -54,6 +55,7 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-[#0B0D18] text-white antialiased selection:bg-purple-600 selection:text-white">
+        <OfflineBootstrap />
         {children}
       </body>
     </html>

@@ -22,6 +22,7 @@ import {
   deleteImageRecordOnBackend,
   deleteTicketOnBackend,
   fetchAdminBootstrapFromBackend,
+  fetchLiveSyncState,
   pushActivityLogToBackend,
   saveTicketToBackend,
   syncSettingsToBackend,
@@ -137,6 +138,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const lastAdminRevisionRef = useRef<string | null>(null);
 
   const loadAllAdminData = useCallback(async () => {
     try {
@@ -154,6 +156,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         setTickets(bootstrap.tickets);
         setClientLogs(bootstrap.logs);
         setOverview(bootstrap.overview);
+        const liveSnap = await fetchLiveSyncState();
+        if (liveSnap?.dataRevision) {
+          lastAdminRevisionRef.current = liveSnap.dataRevision;
+        }
         return;
       }
 
@@ -190,6 +196,36 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   useEffect(() => {
     loadAllAdminData();
+  }, [loadAllAdminData]);
+
+  // Auto-sync Admin dashboard whenever users or other admin tabs update backend data
+  useEffect(() => {
+    const checkAdminSync = async () => {
+      if (typeof navigator === 'undefined' || !navigator.onLine) return;
+      const live = await fetchLiveSyncState();
+      if (!live?.dataRevision) return;
+      if (lastAdminRevisionRef.current && lastAdminRevisionRef.current !== live.dataRevision) {
+        lastAdminRevisionRef.current = live.dataRevision;
+        await loadAllAdminData();
+      } else if (!lastAdminRevisionRef.current) {
+        lastAdminRevisionRef.current = live.dataRevision;
+      }
+    };
+
+    const onFocus = () => void checkAdminSync();
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void checkAdminSync();
+      }
+    }, 10000);
+
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onFocus);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onFocus);
+    };
   }, [loadAllAdminData]);
 
   // Ctrl+K global search shortcut

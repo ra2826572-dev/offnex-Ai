@@ -48,6 +48,10 @@ export class LocalAIEngine {
   }
 
   public async checkOllamaStatus(): Promise<{ connected: boolean; version?: string }> {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      this.ollamaAvailable = false;
+      return { connected: false };
+    }
     try {
       const res = await fetch('/api/ollama/status').catch(() => null);
       if (res && res.ok) {
@@ -72,15 +76,17 @@ export class LocalAIEngine {
   }
 
   public async fetchHardwareInfo(): Promise<SystemHardwareInfo> {
-    try {
-      const res = await fetch('/api/system/info');
-      if (res.ok) {
-        const data = await res.json();
-        this.hardwareInfo = data;
-        return data;
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      try {
+        const res = await fetch('/api/system/info');
+        if (res.ok) {
+          const data = await res.json();
+          this.hardwareInfo = data;
+          return data;
+        }
+      } catch {
+        // Fallback client estimates
       }
-    } catch {
-      // Fallback client estimates
     }
     const fallback: SystemHardwareInfo = {
       platform: typeof navigator !== 'undefined' ? navigator.platform : 'Desktop',

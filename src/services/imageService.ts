@@ -144,6 +144,7 @@ export interface ValidatedReferenceImage {
 }
 
 export async function fetchImageCapabilities(userId?: string): Promise<ImageCapabilities | null> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
   try {
     const res = await fetch('/api/image/capabilities', {
       headers: userId ? { 'x-user-id': userId } : undefined,
@@ -156,6 +157,7 @@ export async function fetchImageCapabilities(userId?: string): Promise<ImageCapa
 }
 
 export async function fetchLocalImageStatus(): Promise<LocalImageStatus | null> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
   try {
     const res = await fetch('/api/image/local-status');
     if (!res.ok) return null;

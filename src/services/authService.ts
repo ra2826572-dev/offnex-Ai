@@ -267,6 +267,24 @@ export class LocalAuthService {
     return null;
   }
 
+  public syncExternalProfile(updated: UserProfile): UserProfile {
+    const existing = this.getCurrentUser();
+    const nextUser: UserProfile = {
+      ...(existing || updated),
+      ...updated,
+    };
+    this.persistSession(nextUser);
+    const users = this.getStoredUsers();
+    const idx = users.findIndex(
+      (u) => u.id === nextUser.id || u.email.toLowerCase() === nextUser.email.toLowerCase()
+    );
+    if (idx !== -1) {
+      users[idx] = { ...users[idx], ...nextUser };
+      this.saveStoredUsers(users);
+    }
+    return nextUser;
+  }
+
   public isAuthenticated(): boolean {
     return !!this.getCurrentUser();
   }

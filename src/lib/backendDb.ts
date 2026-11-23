@@ -31,6 +31,7 @@ const FILES = {
   settings: path.join(DATA_ROOT, 'settings.json'),
   quotas: path.join(DATA_ROOT, 'quotas.json'),
   adminAuth: path.join(DATA_ROOT, 'admin-auth.json'),
+  syncMeta: path.join(DATA_ROOT, 'sync-meta.json'),
 } as const;
 
 const MAX_LOGS = 400;
@@ -69,8 +70,19 @@ interface BackendDbState {
   quotas: Record<string, number[]>;
 }
 
+interface SyncMeta {
+  revision: number;
+  updatedAt: string;
+  deletedUserIds: string[];
+  deletedConversationIds: string[];
+  deletedImageIds: string[];
+}
+
 const globalForBackendDb = globalThis as typeof globalThis & {
   __offnexBackendDb?: BackendDbState;
+  __offnexLoadedRevision?: number;
+  __offnexAppVersionCache?: { value: string; checkedAt: number };
+  __offnexServerStartedAt?: number;
 };
 
 function ensureDirs(): void {
@@ -84,7 +96,7 @@ function ensureDirs(): void {
 
 function writeJsonAtomic(filePath: string, data: unknown): void {
   ensureDirs();
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 7)}.tmp`;
   fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
   fs.renameSync(tmpPath, filePath);
 }
@@ -98,6 +110,30 @@ function readJsonSafe<T>(filePath: string, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+function readSyncMeta(): SyncMeta {
+  const raw = readJsonSafe<Partial<SyncMeta>>(FILES.syncMeta, {});
+  return {
+    revision: typeof raw.revision === 'number' && Number.isFinite(raw.revision) ? raw.revision : 1,
+    updatedAt: typeof raw.updatedAt === 'string' && raw.updatedAt ? raw.updatedAt : new Date().toISOString(),
+    deletedUserIds: Array.isArray(raw.deletedUserIds) ? raw.deletedUserIds : [],
+    deletedConversationIds: Array.isArray(raw.deletedConversationIds) ? raw.deletedConversationIds : [],
+    deletedImageIds: Array.isArray(raw.deletedImageIds) ? raw.deletedImageIds : [],
+  };
+}
+
+function bumpSyncMeta(mutator?: (meta: SyncMeta) => void): SyncMeta {
+  const current = readSyncMeta();
+  current.revision = (current.revision || 0) + 1;
+  current.updatedAt = new Date().toISOString();
+  if (mutator) mutator(current);
+  current.deletedUserIds = current.deletedUserIds.slice(-200);
+  current.deletedConversationIds = current.deletedConversationIds.slice(-300);
+  current.deletedImageIds = current.deletedImageIds.slice(-300);
+  writeJsonAtomic(FILES.syncMeta, current);
+  globalForBackendDb.__offnexLoadedRevision = current.revision;
+  return current;
 }
 
 export function hashPasswordServer(password: string): string {
@@ -212,7 +248,11 @@ function getDefaultSeedUsers(): StoredUserRecord[] {
 }
 
 function getState(): BackendDbState {
-  if (globalForBackendDb.__offnexBackendDb?.initialized) {
+  const diskMeta = readSyncMeta();
+  if (
+    globalForBackendDb.__offnexBackendDb?.initialized &&
+    globalForBackendDb.__offnexLoadedRevision === diskMeta.revision
+  ) {
     return globalForBackendDb.__offnexBackendDb;
   }
 
@@ -293,6 +333,11 @@ function getState(): BackendDbState {
     settings,
     quotas: quotas && typeof quotas === 'object' ? quotas : {},
   };
+
+  if (!fs.existsSync(FILES.syncMeta)) {
+    writeJsonAtomic(FILES.syncMeta, diskMeta);
+  }
+  globalForBackendDb.__offnexLoadedRevision = diskMeta.revision;
 
   return globalForBackendDb.__offnexBackendDb;
 }
@@ -426,6 +471,9 @@ export function upsertUserAuthSync(payload: {
     };
     state.users[existingIdx] = updated;
     writeJsonAtomic(FILES.users, state.users);
+    bumpSyncMeta((meta) => {
+      meta.deletedUserIds = meta.deletedUserIds.filter((uid) => uid !== updated.id);
+    });
     if (payload.mode === 'login') {
       appendBackendLog('info', 'users', `User signed in: ${updated.email}`, updated.email, 'server');
     }
@@ -463,6 +511,9 @@ export function upsertUserAuthSync(payload: {
   };
   state.users.push(created);
   writeJsonAtomic(FILES.users, state.users);
+  bumpSyncMeta((meta) => {
+    meta.deletedUserIds = meta.deletedUserIds.filter((uid) => uid !== created.id);
+  });
   appendBackendLog(
     'info',
     'users',
@@ -524,6 +575,7 @@ export function createUserByAdminBackend(payload: {
   };
   state.users.push(newUser);
   writeJsonAtomic(FILES.users, state.users);
+  bumpSyncMeta();
   appendBackendLog('info', 'users', `Admin created user ${newUser.email}`, 'admin', 'server');
   return { ok: true, user: sanitizeUser(newUser) };
 }
@@ -547,6 +599,7 @@ export function updateUserByAdminBackend(
   };
   state.users[idx] = updated;
   writeJsonAtomic(FILES.users, state.users);
+  bumpSyncMeta();
   appendBackendLog('info', 'users', `Updated user ${updated.email} (role: ${updated.role})`, 'admin', 'server');
   return sanitizeUser(updated);
 }
@@ -557,6 +610,9 @@ export function deleteUserByAdminBackend(id: string): boolean {
   if (!existing) return false;
   state.users = state.users.filter((u) => u.id !== id);
   writeJsonAtomic(FILES.users, state.users);
+  bumpSyncMeta((meta) => {
+    if (!meta.deletedUserIds.includes(id)) meta.deletedUserIds.push(id);
+  });
   appendBackendLog('warn', 'users', `Deleted user account ${existing.email}`, 'admin', 'server');
   return true;
 }
@@ -613,6 +669,9 @@ export function upsertBackendConversation(conv: Conversation): Conversation {
     );
   }
   writeJsonAtomic(FILES.conversations, state.conversations);
+  bumpSyncMeta((meta) => {
+    meta.deletedConversationIds = meta.deletedConversationIds.filter((cid) => cid !== normalized.id);
+  });
   return normalized;
 }
 
@@ -667,6 +726,9 @@ export function upsertBackendMessages(items: Message[]): Message[] {
 
   writeJsonAtomic(FILES.messages, state.messages);
   writeJsonAtomic(FILES.conversations, state.conversations);
+  if (saved.length > 0) {
+    bumpSyncMeta();
+  }
   return saved;
 }
 
@@ -686,6 +748,9 @@ export function deleteBackendConversation(id: string): boolean {
   writeJsonAtomic(FILES.conversations, state.conversations);
   writeJsonAtomic(FILES.messages, state.messages);
   if (exists) {
+    bumpSyncMeta((meta) => {
+      if (!meta.deletedConversationIds.includes(id)) meta.deletedConversationIds.push(id);
+    });
     appendBackendLog('warn', 'chat', `Deleted conversation ${id}`, 'admin', 'server');
   }
   return exists;
@@ -725,6 +790,9 @@ export function saveBackendImageRecord(record: GeneratedImageRecord): GeneratedI
     state.images.unshift(normalized);
   }
   writeJsonAtomic(FILES.images, state.images);
+  bumpSyncMeta((meta) => {
+    meta.deletedImageIds = meta.deletedImageIds.filter((iid) => iid !== normalized.id);
+  });
   return normalized;
 }
 
@@ -739,6 +807,9 @@ export function deleteBackendImageRecord(id: string, userId?: string): boolean {
     deleteDiskImageIfUnused(img.dataUrl, state);
   }
   writeJsonAtomic(FILES.images, state.images);
+  bumpSyncMeta((meta) => {
+    if (!meta.deletedImageIds.includes(id)) meta.deletedImageIds.push(id);
+  });
   appendBackendLog('warn', 'image', `Removed generated image record ${id}`, userId || 'admin', 'server');
   return true;
 }
@@ -782,6 +853,7 @@ export function saveBackendDocument(doc: StoredDocument): StoredDocumentSummary 
     );
   }
   writeJsonAtomic(FILES.documents, state.documents);
+  bumpSyncMeta();
   return summary;
 }
 
@@ -791,6 +863,7 @@ export function deleteBackendDocument(id: string): boolean {
   state.documents = state.documents.filter((d) => d.id !== id);
   if (state.documents.length !== lenBefore) {
     writeJsonAtomic(FILES.documents, state.documents);
+    bumpSyncMeta();
     return true;
   }
   return false;
@@ -842,6 +915,7 @@ export function saveBackendTicket(
     state.tickets.unshift(normalized);
   }
   writeJsonAtomic(FILES.tickets, state.tickets);
+  bumpSyncMeta();
   appendBackendLog(
     'info',
     'tickets',
@@ -858,6 +932,7 @@ export function deleteBackendTicket(id: string): boolean {
   state.tickets = state.tickets.filter((t) => t.id !== id);
   if (state.tickets.length !== lenBefore) {
     writeJsonAtomic(FILES.tickets, state.tickets);
+    bumpSyncMeta();
     return true;
   }
   return false;
@@ -943,6 +1018,7 @@ export function updateBackendRuntimeConfig(
     cfg.ollamaHost = body.ollamaHost.trim().replace(/\/+$/, '');
   }
   writeJsonAtomic(FILES.config, cfg);
+  bumpSyncMeta();
   return cfg;
 }
 
@@ -960,6 +1036,7 @@ export function updateBackendSystemSettings(
     ...patch,
   };
   writeJsonAtomic(FILES.settings, state.settings);
+  bumpSyncMeta();
   appendBackendLog('info', 'settings', 'Updated persistent system settings', actor, 'server');
   return state.settings;
 }
@@ -1130,3 +1207,130 @@ export function verifyAdminSessionToken(token?: string | null): boolean {
     return false;
   }
 }
+
+// ==================== LIVE APP VERSION & DATA SYNC ====================
+
+export function getBackendAppVersion(): string {
+  const now = Date.now();
+  const cached = globalForBackendDb.__offnexAppVersionCache;
+  if (cached && now - cached.checkedAt < 2500) {
+    return cached.value;
+  }
+
+  if (!globalForBackendDb.__offnexServerStartedAt) {
+    globalForBackendDb.__offnexServerStartedAt = now;
+  }
+
+  let buildId = '';
+  const buildIdPath = path.resolve(process.cwd(), '.next', 'BUILD_ID');
+  try {
+    if (fs.existsSync(buildIdPath)) {
+      buildId = fs.readFileSync(buildIdPath, 'utf8').trim();
+    }
+  } catch {
+    // Ignore read error
+  }
+
+  const watchFiles = [
+    path.resolve(process.cwd(), 'public', 'sw.js'),
+    path.resolve(process.cwd(), 'public', 'manifest.webmanifest'),
+    path.resolve(process.cwd(), 'package.json'),
+    path.resolve(process.cwd(), 'src', 'app', 'layout.tsx'),
+    path.resolve(process.cwd(), 'src', 'app', 'page.tsx'),
+    path.resolve(process.cwd(), 'src', 'app', 'admin', 'page.tsx'),
+    path.resolve(process.cwd(), 'src', 'components', 'OfflineGptWorkspace.tsx'),
+    path.resolve(process.cwd(), 'src', 'components', 'ChatView.tsx'),
+    path.resolve(process.cwd(), 'src', 'components', 'ImagesView.tsx'),
+    path.resolve(process.cwd(), 'src', 'components', 'SettingsView.tsx'),
+    path.resolve(process.cwd(), 'src', 'components', 'admin', 'AdminPanel.tsx'),
+  ];
+
+  let maxMtime = 0;
+  for (const filePath of watchFiles) {
+    try {
+      const st = fs.statSync(filePath);
+      if (st.mtimeMs > maxMtime) maxMtime = Math.floor(st.mtimeMs);
+    } catch {
+      // Ignore missing optional path
+    }
+  }
+
+  const version = buildId
+    ? `build-${buildId}-${maxMtime}`
+    : `srv-${globalForBackendDb.__offnexServerStartedAt}-${maxMtime}`;
+
+  globalForBackendDb.__offnexAppVersionCache = {
+    value: version,
+    checkedAt: now,
+  };
+  return version;
+}
+
+export function getBackendLiveSyncSnapshot(options?: {
+  userId?: string;
+  email?: string;
+}) {
+  const state = getState();
+  const meta = readSyncMeta();
+  const appVersion = getBackendAppVersion();
+
+  let matchedUser: UserProfile | null = null;
+  let userDeleted = false;
+
+  if (options?.userId) {
+    const foundById = state.users.find((u) => u.id === options.userId);
+    if (foundById) {
+      matchedUser = sanitizeUser(foundById);
+    } else if (meta.deletedUserIds.includes(options.userId)) {
+      userDeleted = true;
+    }
+  }
+
+  if (!matchedUser && !userDeleted && options?.email) {
+    const cleanEmail = options.email.trim().toLowerCase();
+    const foundByEmail = state.users.find((u) => u.email.toLowerCase() === cleanEmail);
+    if (foundByEmail) {
+      matchedUser = sanitizeUser(foundByEmail);
+    }
+  }
+
+  const uid = matchedUser?.id || options?.userId;
+  const uEmail = matchedUser?.email || options?.email;
+
+  const userConvs = uid ? listBackendConversations(uid) : state.conversations;
+  const userImgs = uid ? listBackendImages(uid) : state.images;
+  const userTickets = uid || uEmail ? listBackendTickets(uid, uEmail) : state.tickets;
+  const userDocs = uid ? listBackendDocuments(uid) : state.documents;
+
+  return {
+    ok: true,
+    appVersion,
+    dataRevision: `${meta.revision}:${meta.updatedAt}`,
+    revisionNumber: meta.revision,
+    updatedAt: meta.updatedAt,
+    settings: state.settings,
+    config: {
+      defaultChatModel: state.config.defaultChatModel,
+      defaultImageModel: state.config.defaultImageModel,
+      highQualityImageModel: state.config.highQualityImageModel,
+      imageRateLimitMax: state.config.imageRateLimitMax,
+      imageRateLimitWindowMinutes: state.config.imageRateLimitWindowMinutes,
+      maintenanceMode: state.config.maintenanceMode,
+      allowLocalFallback: state.config.allowLocalFallback,
+      ollamaHost: state.config.ollamaHost,
+    },
+    user: matchedUser,
+    userDeleted,
+    deletedConversationIds: meta.deletedConversationIds,
+    deletedImageIds: meta.deletedImageIds,
+    counts: {
+      users: state.users.length,
+      conversations: userConvs.length,
+      messages: state.messages.length,
+      images: userImgs.length,
+      tickets: userTickets.length,
+      documents: userDocs.length,
+    },
+  };
+}
+

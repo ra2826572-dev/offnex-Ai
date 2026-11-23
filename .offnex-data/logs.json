@@ -1,5 +1,41 @@
 [
   {
+    "id": "srv-1795427846011-2642",
+    "timestamp": "2026-11-23T09:57:26.011Z",
+    "level": "info",
+    "category": "settings",
+    "message": "Updated persistent system settings",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795427845804-41e1",
+    "timestamp": "2026-11-23T09:57:25.804Z",
+    "level": "info",
+    "category": "settings",
+    "message": "Updated persistent system settings",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795427589093-3a81",
+    "timestamp": "2026-11-23T09:53:09.093Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"hello\"",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795427589083-3aea",
+    "timestamp": "2026-11-23T09:53:09.083Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"Pakistan Economy Report\"",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
     "id": "srv-1795256207787-d115",
     "timestamp": "2026-11-21T10:16:47.788Z",
     "level": "info",

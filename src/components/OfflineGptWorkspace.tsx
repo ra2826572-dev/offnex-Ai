@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   NavigationTab,
   SupportedLanguage,
@@ -15,6 +15,8 @@ import {
   GeneratedImageRecord,
   ImageStyle,
   ImageAspectRatio,
+  AdminRuntimeConfig,
+  LiveSyncSnapshot,
 } from '../types';
 import { db } from '../services/db';
 import { aiEngine, SUPPORTED_LOCAL_MODELS } from '../services/aiEngine';
@@ -30,6 +32,8 @@ import { generatePlayableVideo } from '../services/offlineVideoEngine';
 import {
   deleteConversationOnBackend,
   deleteImageRecordOnBackend,
+  fetchLiveSyncState,
+  fetchSettingsFromBackend,
   fetchUserChatsFromBackend,
   fetchUserImagesFromBackend,
   syncConversationToBackend,
@@ -50,9 +54,9 @@ import { ModelManagerModal } from './ModelManagerModal';
 import { MobileBottomNav } from './MobileBottomNav';
 import { MobileDrawer } from './MobileDrawer';
 import { AuthPage } from './auth/AuthPage';
-import { Menu, Wifi, WifiOff, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, Menu, RefreshCw, Wifi, WifiOff, Sparkles, X } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { initPWAListeners } from '../hooks/usePWAInstall';
+import { initPWAListeners, warmOfflineAppCache } from '../hooks/usePWAInstall';
 
 export function OfflineGptWorkspace() {
   const [isHydrated, setIsHydrated] = useState(false);
@@ -96,6 +100,48 @@ export function OfflineGptWorkspace() {
   const [autoOpenInstall, setAutoOpenInstall] = useState(false);
   const [dailyUsageTick, setDailyUsageTick] = useState(0);
   const [welcomeBannerName, setWelcomeBannerName] = useState<string | null>(null);
+  const [runtimeConfig, setRuntimeConfig] = useState<AdminRuntimeConfig | null>(null);
+  const [isAppUpdating, setIsAppUpdating] = useState(false);
+
+  const lastRevisionRef = useRef<string | null>(null);
+  const lastLocalSettingsPushRef = useRef<number>(0);
+  const activeConversationIdRef = useRef<string | null>(null);
+  const currentUserRef = useRef<UserProfile | null>(null);
+  const settingsRef = useRef<AppSettings>(settings);
+
+  useEffect(() => {
+    activeConversationIdRef.current = activeConversationId;
+  }, [activeConversationId]);
+
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  // Coordinate pending app-shell auto-reloads with active AI generation so nothing interrupts mid-reply
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const w = window as Window & {
+      __offnexBusyGenerating?: boolean;
+      __offnexPendingReload?: boolean;
+    };
+    const busy = isGenerating || isGeneratingImage || isGeneratingVideo;
+    w.__offnexBusyGenerating = busy;
+    if (!busy && w.__offnexPendingReload) {
+      w.__offnexPendingReload = false;
+      window.location.reload();
+    }
+  }, [isGenerating, isGeneratingImage, isGeneratingVideo]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onUpdating = () => setIsAppUpdating(true);
+    window.addEventListener('offnex:app-updating', onUpdating);
+    return () => window.removeEventListener('offnex:app-updating', onUpdating);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -109,6 +155,15 @@ export function OfflineGptWorkspace() {
       window.removeEventListener('offline', onOffline);
     };
   }, []);
+
+  // Warm lazy chunks & media into offline Service Worker cache whenever navigating tabs online
+  useEffect(() => {
+    if (!isNetworkOnline) return;
+    const t = setTimeout(() => {
+      void warmOfflineAppCache();
+    }, 600);
+    return () => clearTimeout(t);
+  }, [activeTab, isNetworkOnline]);
 
   // Auto-dismiss welcome message after 6 seconds
   useEffect(() => {
@@ -159,8 +214,31 @@ export function OfflineGptWorkspace() {
 
       await db.init();
       const loadedSettings = await db.getSettings();
-      setSettings(loadedSettings);
-      setLanguage(loadedSettings.language);
+      const backendSettings = await fetchSettingsFromBackend();
+      const effectiveSettings = backendSettings
+        ? { ...loadedSettings, ...backendSettings }
+        : loadedSettings;
+      if (backendSettings) {
+        await db.saveSettings(effectiveSettings);
+      }
+      setSettings(effectiveSettings);
+      setLanguage(effectiveSettings.language);
+      if (effectiveSettings.defaultModel) {
+        setActiveModel(effectiveSettings.defaultModel);
+        aiEngine.setActiveModel(effectiveSettings.defaultModel);
+      }
+
+      const initialLive = await fetchLiveSyncState(syncedUser?.id, syncedUser?.email);
+      if (initialLive) {
+        lastRevisionRef.current = initialLive.dataRevision;
+        if (initialLive.config) {
+          setRuntimeConfig(initialLive.config);
+        }
+        if (initialLive.user && syncedUser) {
+          const updatedProfile = authService.syncExternalProfile(initialLive.user);
+          setCurrentUser(updatedProfile);
+        }
+      }
 
       const allLocalConvs = await db.getConversations();
       const uid = syncedUser?.id;
@@ -324,6 +402,165 @@ export function OfflineGptWorkspace() {
       }
     });
   }, [currentUser?.id]);
+
+  // Real-time two-way live sync: pulls any Admin or backend changes (settings, config, user role/deletion, chats, images, tickets)
+  const syncFromLiveBackend = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.onLine) return;
+    const user = currentUserRef.current;
+    const live: LiveSyncSnapshot | null = await fetchLiveSyncState(user?.id, user?.email);
+    if (!live) return;
+
+    if (live.config) {
+      setRuntimeConfig(live.config);
+    }
+
+    if (live.userDeleted && user) {
+      authService.logout();
+      setCurrentUser(null);
+      setActiveTab('home');
+      return;
+    }
+
+    if (live.user && user) {
+      const profileChanged =
+        live.user.firstName !== user.firstName ||
+        live.user.lastName !== user.lastName ||
+        live.user.email !== user.email ||
+        live.user.role !== user.role ||
+        live.user.avatarUrl !== user.avatarUrl;
+      if (profileChanged) {
+        const syncedProfile = authService.syncExternalProfile(live.user);
+        setCurrentUser(syncedProfile);
+      }
+    }
+
+    const revisionChanged =
+      lastRevisionRef.current !== null && lastRevisionRef.current !== live.dataRevision;
+    if (lastRevisionRef.current === null) {
+      lastRevisionRef.current = live.dataRevision;
+    } else if (revisionChanged) {
+      lastRevisionRef.current = live.dataRevision;
+
+      // Apply backend settings updates cleanly (skip right after local save to prevent echo)
+      if (Date.now() - lastLocalSettingsPushRef.current > 3000 && live.settings) {
+        const cur = settingsRef.current;
+        if (JSON.stringify(cur) !== JSON.stringify(live.settings)) {
+          const mergedSettings: AppSettings = { ...cur, ...live.settings };
+          setSettings(mergedSettings);
+          setLanguage(mergedSettings.language);
+          if (mergedSettings.defaultModel && mergedSettings.defaultModel !== cur.defaultModel) {
+            setActiveModel(mergedSettings.defaultModel);
+            aiEngine.setActiveModel(mergedSettings.defaultModel);
+          }
+          await db.saveSettings(mergedSettings);
+        }
+      }
+
+      // Reconcile admin/remote deletions in local IndexedDB
+      if (Array.isArray(live.deletedConversationIds) && live.deletedConversationIds.length > 0) {
+        const deletedSet = new Set(live.deletedConversationIds);
+        for (const cid of live.deletedConversationIds) {
+          await db.deleteConversation(cid);
+        }
+        setConversations((prev) => prev.filter((c) => !deletedSet.has(c.id)));
+        if (activeConversationIdRef.current && deletedSet.has(activeConversationIdRef.current)) {
+          setActiveConversationId(null);
+          setMessages([]);
+        }
+      }
+
+      if (Array.isArray(live.deletedImageIds) && live.deletedImageIds.length > 0 && user?.id) {
+        const deletedImgSet = new Set(live.deletedImageIds);
+        for (const iid of live.deletedImageIds) {
+          await db.deleteImageRecord(iid, user.id);
+        }
+        setImageHistory((prev) => prev.filter((rec) => !deletedImgSet.has(rec.id)));
+      }
+
+      // Pull fresh chats & images for the active user
+      if (user?.id) {
+        const uid = user.id;
+        const [backendChats, backendImgs] = await Promise.all([
+          fetchUserChatsFromBackend(uid),
+          fetchUserImagesFromBackend(uid),
+        ]);
+
+        if (backendChats) {
+          const deletedConvSet = new Set(live.deletedConversationIds || []);
+          const localConvs = (await db.getConversations()).filter(
+            (c) => (!c.userId || c.userId === uid) && !deletedConvSet.has(c.id)
+          );
+          const convMap = new Map<string, Conversation>();
+          for (const c of localConvs) convMap.set(c.id, c);
+          for (const c of backendChats.conversations) {
+            const existing = convMap.get(c.id);
+            if (!existing || new Date(c.updatedAt) >= new Date(existing.updatedAt)) {
+              convMap.set(c.id, c);
+              await db.saveConversation(c);
+            }
+          }
+          for (const m of backendChats.messages) {
+            await db.saveMessage(m);
+          }
+          const sortedConvs = Array.from(convMap.values()).sort(
+            (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+          );
+          setConversations(sortedConvs);
+          if (activeConversationIdRef.current) {
+            const activeMsgs = await db.getMessages(activeConversationIdRef.current);
+            setMessages(activeMsgs);
+          }
+        }
+
+        if (backendImgs) {
+          const deletedImgSet = new Set(live.deletedImageIds || []);
+          const localImgs = (await db.getImageHistory(uid)).filter(
+            (r) => !deletedImgSet.has(r.id)
+          );
+          const imgMap = new Map<string, GeneratedImageRecord>();
+          for (const r of localImgs) imgMap.set(r.id, r);
+          for (const r of backendImgs) {
+            imgMap.set(r.id, r);
+            await db.saveImageRecord(r);
+          }
+          setImageHistory(
+            Array.from(imgMap.values()).sort(
+              (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            )
+          );
+        }
+      }
+
+      window.dispatchEvent(new CustomEvent('offnex:backend-synced', { detail: live }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onSyncTrigger = () => {
+      void syncFromLiveBackend();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        void syncFromLiveBackend();
+      }
+    };
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        void syncFromLiveBackend();
+      }
+    }, 10000);
+
+    window.addEventListener('focus', onSyncTrigger);
+    window.addEventListener('online', onSyncTrigger);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onSyncTrigger);
+      window.removeEventListener('online', onSyncTrigger);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [syncFromLiveBackend]);
 
   // Sync conversation selection
   const handleSelectConversation = async (id: string) => {
@@ -686,7 +923,8 @@ export function OfflineGptWorkspace() {
     }
 
     const uid = currentUser?.id || 'anonymous';
-    const currentDailyQuota = getDailyImageQuota(uid, imageHistory, DAILY_IMAGE_LIMIT);
+    const configuredLimit = runtimeConfig?.imageRateLimitMax ?? DAILY_IMAGE_LIMIT;
+    const currentDailyQuota = getDailyImageQuota(uid, imageHistory, configuredLimit);
     if (currentDailyQuota.remaining <= 0) {
       const limitMsg = `Daily image limit reached (${currentDailyQuota.limit}/${currentDailyQuota.limit} images used today). Free chat is unlimited — you can create more images tomorrow.`;
       setLastImageError(limitMsg);
@@ -1187,6 +1425,7 @@ export function OfflineGptWorkspace() {
 
   // Language update
   const handleLanguageChange = async (newLang: SupportedLanguage) => {
+    lastLocalSettingsPushRef.current = Date.now();
     setLanguage(newLang);
     const updated = { ...settings, language: newLang };
     setSettings(updated);
@@ -1196,6 +1435,7 @@ export function OfflineGptWorkspace() {
 
   // Toggle Offline Mode vs Online Mode from header / quick switch
   const handleToggleOfflineMode = async () => {
+    lastLocalSettingsPushRef.current = Date.now();
     const updated = { ...settings, offlineStrict: !settings.offlineStrict };
     setSettings(updated);
     await db.saveSettings(updated);
@@ -1205,6 +1445,7 @@ export function OfflineGptWorkspace() {
 
   // Switch Offline Mode off when user explicitly requests online cloud features
   const handleDisableOfflineMode = async () => {
+    lastLocalSettingsPushRef.current = Date.now();
     const updated = { ...settings, offlineStrict: false };
     setSettings(updated);
     await db.saveSettings(updated);
@@ -1237,7 +1478,8 @@ export function OfflineGptWorkspace() {
 
   const activeModelObj = models.find((m) => m.id === activeModel) || models[0];
   void dailyUsageTick;
-  const dailyImageQuota = getDailyImageQuota(currentUser?.id, imageHistory, DAILY_IMAGE_LIMIT);
+  const effectiveImageLimit = runtimeConfig?.imageRateLimitMax ?? DAILY_IMAGE_LIMIT;
+  const dailyImageQuota = getDailyImageQuota(currentUser?.id, imageHistory, effectiveImageLimit);
 
   // Prevent SSR/client hydration mismatch while reading localStorage auth state
   if (!isHydrated) {
@@ -1333,10 +1575,12 @@ export function OfflineGptWorkspace() {
         onToggleOfflineMode={handleToggleOfflineMode}
         theme={settings.theme}
         onToggleTheme={async () => {
+          lastLocalSettingsPushRef.current = Date.now();
           const nextTheme = settings.theme === 'dark' ? 'light' : 'dark';
           const updated = { ...settings, theme: nextTheme } as AppSettings;
           setSettings(updated);
           await db.saveSettings(updated);
+          void syncSettingsToBackend(updated);
         }}
       />
 
@@ -1394,6 +1638,18 @@ export function OfflineGptWorkspace() {
 
         {/* Center Workspace View Switcher */}
         <main className={`flex-1 flex flex-col h-full overflow-hidden ${isLight ? 'bg-white' : 'bg-[#0B0D18]'} relative min-w-0`}>
+          {isAppUpdating && (
+            <div className="shrink-0 bg-purple-600/20 border-b border-purple-500/30 px-4 py-1.5 flex items-center justify-center gap-2 text-xs font-semibold text-purple-200">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+              <span>New update detected — syncing latest version &amp; offline cache...</span>
+            </div>
+          )}
+          {runtimeConfig?.maintenanceMode && (
+            <div className="shrink-0 bg-amber-500/15 border-b border-amber-500/30 px-4 py-1.5 flex items-center justify-center gap-2 text-xs font-medium text-amber-200">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>Admin Maintenance Mode is active — local &amp; offline AI tools remain available.</span>
+            </div>
+          )}
           {activeTab === 'home' && (
             <HomeView
               conversations={conversations}
@@ -1490,6 +1746,7 @@ export function OfflineGptWorkspace() {
             <SettingsView
               settings={settings}
               onUpdateSettings={async (s) => {
+                lastLocalSettingsPushRef.current = Date.now();
                 setSettings(s);
                 await db.saveSettings(s);
                 void syncSettingsToBackend(s);

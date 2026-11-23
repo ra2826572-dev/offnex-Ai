@@ -9,6 +9,12 @@ export interface BeforeInstallPromptEvent extends Event {
 
 export type DevicePlatform = 'ios' | 'android' | 'desktop';
 
+export interface OfflineCacheStatus {
+  ready: boolean;
+  cachedCount: number;
+  cacheName: string;
+}
+
 // Global store so `beforeinstallprompt` is never lost before opening Settings
 let globalDeferredPrompt: BeforeInstallPromptEvent | null = null;
 let globalInstalled = false;
@@ -17,6 +23,129 @@ const subscribers = new Set<() => void>();
 
 function notifySubscribers() {
   subscribers.forEach((cb) => cb());
+}
+
+function collectRuntimeAssetUrls(extraUrls: string[] = []): string[] {
+  if (typeof window === 'undefined') return [];
+  const urls = new Set<string>(['/', '/admin', '/manifest.webmanifest', ...extraUrls]);
+
+  try {
+    urls.add(window.location.href);
+  } catch {
+    // Ignore
+  }
+
+  if (typeof document !== 'undefined') {
+    document
+      .querySelectorAll('script[src], link[href], img[src]')
+      .forEach((el) => {
+        const attr = el.getAttribute('src') || el.getAttribute('href');
+        if (!attr) return;
+        try {
+          const parsed = new URL(attr, window.location.origin);
+          if (parsed.origin === window.location.origin) {
+            urls.add(parsed.href);
+          }
+        } catch {
+          // Ignore invalid URL
+        }
+      });
+  }
+
+  if (typeof performance !== 'undefined' && typeof performance.getEntriesByType === 'function') {
+    try {
+      const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[];
+      for (const entry of resources) {
+        if (!entry.name) continue;
+        try {
+          const parsed = new URL(entry.name, window.location.origin);
+          if (
+            parsed.origin === window.location.origin &&
+            !parsed.pathname.startsWith('/api/') &&
+            !parsed.pathname.startsWith('/_next/webpack-hmr') &&
+            parsed.pathname !== '/sw.js'
+          ) {
+            urls.add(parsed.href);
+          }
+        } catch {
+          // Ignore invalid URL
+        }
+      }
+    } catch {
+      // Ignore performance API errors
+    }
+  }
+
+  return Array.from(urls);
+}
+
+export async function warmOfflineAppCache(
+  extraUrls: string[] = [],
+  forceReloadPages: boolean = false
+): Promise<OfflineCacheStatus | null> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const worker = navigator.serviceWorker.controller || registration.active;
+    if (!worker) return null;
+
+    const urls = collectRuntimeAssetUrls(extraUrls);
+    return await new Promise<OfflineCacheStatus | null>((resolve) => {
+      const channel = new MessageChannel();
+      const timeout = setTimeout(() => resolve(null), 6000);
+      channel.port1.onmessage = (ev) => {
+        clearTimeout(timeout);
+        const data = ev.data as { cachedCount?: number; cacheName?: string };
+        resolve({
+          ready: true,
+          cachedCount: data?.cachedCount || urls.length,
+          cacheName: data?.cacheName || 'offnex-ai-shell',
+        });
+      };
+      worker.postMessage(
+        { type: forceReloadPages ? 'FORCE_REFRESH_CACHE' : 'CACHE_URLS', urls },
+        [channel.port2]
+      );
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function checkServiceWorkerUpdate(): Promise<void> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator) || !navigator.onLine) return;
+  try {
+    const reg = await navigator.serviceWorker.getRegistration('/');
+    await reg?.update();
+  } catch {
+    // Ignore update check failure
+  }
+}
+
+export async function getOfflineCacheStatus(): Promise<OfflineCacheStatus | null> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const worker = navigator.serviceWorker.controller || registration.active;
+    if (!worker) return null;
+
+    return await new Promise<OfflineCacheStatus | null>((resolve) => {
+      const channel = new MessageChannel();
+      const timeout = setTimeout(() => resolve(null), 3000);
+      channel.port1.onmessage = (ev) => {
+        clearTimeout(timeout);
+        const data = ev.data as { ready?: boolean; cachedCount?: number; cacheName?: string };
+        resolve({
+          ready: Boolean(data?.ready),
+          cachedCount: data?.cachedCount || 0,
+          cacheName: data?.cacheName || 'offnex-ai-shell',
+        });
+      };
+      worker.postMessage({ type: 'PING_CACHE_STATUS' }, [channel.port2]);
+    });
+  } catch {
+    return null;
+  }
 }
 
 export function initPWAListeners() {
@@ -43,16 +172,41 @@ export function initPWAListeners() {
   window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   window.addEventListener('appinstalled', handleAppInstalled);
 
-  // Register Service Worker so Chrome / Edge / Android qualify the site as an installable PWA
+  // Register Service Worker early, auto-activate new versions, and warm offline shell cache
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker
-      .register('/sw.js', { scope: '/' })
+      .register('/sw.js', { scope: '/', updateViaCache: 'none' })
       .then((registration) => {
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+        }
+
+        registration.addEventListener('updatefound', () => {
+          const installing = registration.installing;
+          if (!installing) return;
+          installing.addEventListener('statechange', () => {
+            if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+              installing.postMessage({ type: 'SKIP_WAITING' });
+            }
+          });
+        });
+
         registration.update().catch(() => undefined);
+        if (navigator.onLine) {
+          setTimeout(() => {
+            void warmOfflineAppCache();
+          }, 900);
+        }
       })
       .catch(() => {
         // Ignore registration issues in restricted environments
       });
+
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (navigator.onLine) {
+        void warmOfflineAppCache([], true);
+      }
+    });
   }
 }
 

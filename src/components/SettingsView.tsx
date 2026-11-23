@@ -22,10 +22,17 @@ import {
   LifeBuoy,
   Send,
   ShieldCheck,
+  RefreshCw,
 } from 'lucide-react';
 import Link from 'next/link';
 import { AppSettings, SupportTicket, SupportedLanguage, UserProfile } from '../types';
-import { DevicePlatform, usePWAInstall } from '../hooks/usePWAInstall';
+import {
+  DevicePlatform,
+  OfflineCacheStatus,
+  getOfflineCacheStatus,
+  usePWAInstall,
+  warmOfflineAppCache,
+} from '../hooks/usePWAInstall';
 import { db } from '../services/db';
 import { fetchUserTicketsFromBackend, saveTicketToBackend } from '../services/backendSync';
 
@@ -64,6 +71,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [ticketMessage, setTicketMessage] = useState('');
   const [ticketSubmitting, setTicketSubmitting] = useState(false);
   const [ticketNotice, setTicketNotice] = useState<string | null>(null);
+  const [offlineCacheStatus, setOfflineCacheStatus] = useState<OfflineCacheStatus | null>(null);
+  const [isSyncingOffline, setIsSyncingOffline] = useState(false);
 
   React.useEffect(() => {
     setSelectedPlatform(platform);
@@ -72,8 +81,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   React.useEffect(() => {
     if (typeof window !== 'undefined') {
       setDirectInstallUrl(`${window.location.origin}/?install=1`);
+      getOfflineCacheStatus().then((st) => {
+        if (st) setOfflineCacheStatus(st);
+      });
     }
   }, []);
+
+  const handleSyncOfflineCache = async () => {
+    if (isSyncingOffline) return;
+    setIsSyncingOffline(true);
+    const res = await warmOfflineAppCache();
+    if (res) {
+      setOfflineCacheStatus(res);
+    } else {
+      const st = await getOfflineCacheStatus();
+      if (st) setOfflineCacheStatus(st);
+    }
+    setIsSyncingOffline(false);
+  };
+
+  React.useEffect(() => {
+    setAutoSave(settings.autoSaveHistory);
+  }, [settings.autoSaveHistory]);
 
   React.useEffect(() => {
     let active = true;
@@ -96,8 +125,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       }
     }
     loadMyTickets();
+
+    const handleSync = () => {
+      void loadMyTickets();
+    };
+    window.addEventListener('offnex:backend-synced', handleSync);
+    window.addEventListener('focus', handleSync);
+    window.addEventListener('online', handleSync);
+
     return () => {
       active = false;
+      window.removeEventListener('offnex:backend-synced', handleSync);
+      window.removeEventListener('focus', handleSync);
+      window.removeEventListener('online', handleSync);
     };
   }, [currentUser?.id, currentUser?.email]);
 
@@ -422,6 +462,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span className="text-white">{isInstallable ? 'Install Now' : 'Install App'}</span>
               </button>
             )}
+          </div>
+
+          {/* Offline Launch Cache Readiness */}
+          <div className="p-3.5 sm:p-4 rounded-xl bg-[#14182D] border border-[#222846] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <WifiOff className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-white">Offline Launch Storage</div>
+                <div className="text-[11px] text-gray-400">
+                  {offlineCacheStatus?.ready
+                    ? `Offline Ready (${offlineCacheStatus.cachedCount} app files saved on device — works without internet)`
+                    : 'Save app files on this device so Offnex Ai opens even when Wi-Fi is off'}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleSyncOfflineCache}
+              disabled={isSyncingOffline}
+              className="w-full sm:w-auto min-h-[38px] flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#1A1F38] hover:bg-[#252C52] border border-[#272D50] text-xs font-semibold text-white transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isSyncingOffline ? 'animate-spin' : ''}`} />
+              <span>{isSyncingOffline ? 'Saving...' : 'Sync Offline Files'}</span>
+            </button>
           </div>
 
           {/* Support Ticket Submission & History */}

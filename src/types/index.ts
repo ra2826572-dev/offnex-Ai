@@ -340,3 +340,25 @@ export interface AdminBootstrapResponse {
   overview: AdminOverviewResponse;
 }
 
+export interface LiveSyncSnapshot {
+  ok: boolean;
+  appVersion: string;
+  dataRevision: string;
+  revisionNumber: number;
+  updatedAt: string;
+  settings: AppSettings;
+  config: AdminRuntimeConfig;
+  user: UserProfile | null;
+  userDeleted: boolean;
+  deletedConversationIds: string[];
+  deletedImageIds: string[];
+  counts: {
+    users: number;
+    conversations: number;
+    messages: number;
+    images: number;
+    tickets: number;
+    documents: number;
+  };
+}
+

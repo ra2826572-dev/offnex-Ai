@@ -4,6 +4,7 @@ import type {
   AppSettings,
   Conversation,
   GeneratedImageRecord,
+  LiveSyncSnapshot,
   Message,
   StoredDocument,
   SupportTicket,
@@ -210,3 +211,24 @@ export async function fetchAdminBootstrapFromBackend(): Promise<AdminBootstrapRe
     return null;
   }
 }
+
+export async function fetchLiveSyncState(
+  userId?: string,
+  email?: string
+): Promise<LiveSyncSnapshot | null> {
+  if (!isOnline()) return null;
+  try {
+    const qs = new URLSearchParams();
+    if (userId) qs.set('userId', userId);
+    if (email) qs.set('email', email);
+    const query = qs.toString();
+    const res = await fetch(`/api/sync/live${query ? `?${query}` : ''}`, {
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as LiveSyncSnapshot;
+  } catch {
+    return null;
+  }
+}
+
