@@ -41,6 +41,8 @@ export interface GeneratedImageRecord {
   modelUsed: string;
   provider: 'gemini' | 'local' | 'openai' | 'pinterest';
   images: GeneratedImageItem[];
+  mediaType?: 'image' | 'video';
+  videoUrl?: string;
   hasReferenceImage?: boolean;
   createdAt: string;
 }
@@ -54,6 +56,18 @@ export interface MessageImagePayload {
   provider: 'gemini' | 'local' | 'openai' | 'pinterest';
   images: GeneratedImageItem[];
   referencePreviewUrl?: string;
+  error?: string;
+}
+
+export interface MessageVideoPayload {
+  prompt: string;
+  style: ImageStyle;
+  aspectRatio: ImageAspectRatio;
+  durationSec: number;
+  videoUrl: string;
+  posterUrl?: string;
+  mimeType: string;
+  mode: 'online' | 'offline';
   error?: string;
 }
 
@@ -73,6 +87,7 @@ export interface Message {
   suggestedActions?: string[];
   isStreaming?: boolean;
   imageGeneration?: MessageImagePayload;
+  videoGeneration?: MessageVideoPayload;
 }
 
 export interface Conversation {

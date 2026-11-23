@@ -14,6 +14,7 @@ import {
   UserProfile,
   GeneratedImageRecord,
   ImageStyle,
+  ImageAspectRatio,
 } from '../types';
 import { db } from '../services/db';
 import { aiEngine, SUPPORTED_LOCAL_MODELS } from '../services/aiEngine';
@@ -25,6 +26,7 @@ import {
   recordDailyImageUsage,
   DAILY_IMAGE_LIMIT,
 } from '../services/imageService';
+import { generatePlayableVideo } from '../services/offlineVideoEngine';
 import {
   deleteConversationOnBackend,
   deleteImageRecordOnBackend,
@@ -40,7 +42,7 @@ import { DesktopHeader } from './DesktopHeader';
 import { Sidebar } from './Sidebar';
 import { RightSidebar } from './RightSidebar';
 import { HomeView } from './HomeView';
-import { ChatView, ImageGenerationSubmitPayload } from './ChatView';
+import { ChatView, ImageGenerationSubmitPayload, VideoGenerationSubmitPayload } from './ChatView';
 import { ImagesView } from './ImagesView';
 import { VoiceView } from './VoiceView';
 import { SettingsView } from './SettingsView';
@@ -84,6 +86,7 @@ export function OfflineGptWorkspace() {
   const [activeModel, setActiveModel] = useState<string>('gemini-3.1-flash-lite');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [lastImageError, setLastImageError] = useState<string | null>(null);
   const [imageHistory, setImageHistory] = useState<GeneratedImageRecord[]>([]);
   const [isOllamaConnected, setIsOllamaConnected] = useState(false);
@@ -437,12 +440,97 @@ export function OfflineGptWorkspace() {
     };
   };
 
+  // Detect when user asks to create/generate a video in Chat (works both Online & Offline)
+  const extractChatVideoRequest = (
+    rawText: string
+  ): { prompt: string; style: ImageStyle; aspectRatio: ImageAspectRatio } | null => {
+    const trimmed = rawText.trim();
+    if (!trimmed) return null;
+    const low = trimmed.toLowerCase();
+
+    // Exclude video script/tutorial/editing requests so they route to AI Chat (Online & Offline)
+    if (
+      /\b(script|storyboard|outline|editing|caption|hashtags|tutorial|guide|tips|software|explain|what is|how does|how to)\b/i.test(
+        low
+      )
+    ) {
+      return null;
+    }
+
+    const hasVideoNoun =
+      /\b(video|videos|reel|reels|clip|clips|animation|short video|shorts)\b|ویڈیو/i.test(low);
+    const hasActionVerb =
+      /\b(generate|create|make|render|animate|show|give|banao|bana|bna|dikhao|dikha|do|dein|de|chahiye|chaye)\b|بناؤ|بنا|دکھاؤ/i.test(
+        low
+      );
+    const startsWithVideoCommand =
+      /^(animate|video of|reel of|clip of|make video|create video|generate video)\b/i.test(low);
+
+    if (!((hasVideoNoun && hasActionVerb) || startsWithVideoCommand)) {
+      return null;
+    }
+
+    let inferredStyle: ImageStyle = 'Cinematic';
+    if (/\banime\b/i.test(low)) inferredStyle = 'Anime';
+    else if (/\b3d\b/i.test(low)) inferredStyle = '3D Rendering';
+    else if (/\b(digital art|painting|fantasy)\b/i.test(low)) inferredStyle = 'Digital Art';
+    else if (/\b(real|realistic|nature|mountain|sunset|city|rain|snow)\b/i.test(low)) {
+      inferredStyle = 'Realistic Photography';
+    }
+
+    let inferredRatio: ImageAspectRatio = '16:9';
+    if (/\b(9:16|reel|reels|tiktok|shorts|vertical|portrait)\b/i.test(low)) {
+      inferredRatio = '9:16';
+    } else if (/\b(1:1|square)\b/i.test(low)) {
+      inferredRatio = '1:1';
+    } else if (/\b(4:3)\b/i.test(low)) {
+      inferredRatio = '4:3';
+    }
+
+    const cleanedPrompt = trimmed
+      .replace(/^(please|can you|could you|mujhe|mujh ko|mere liye|zara|ek|ai)\s+/gi, '')
+      .replace(
+        /\b(generate|create|make|render|animate|show me|give me)\s+(an?\s+)?(video|reel|clip|animation|short video)\s+(of|for|about)?\s*/gi,
+        ''
+      )
+      .replace(
+        /\b(ki|ka|ke)\s+(video|reel|clip|animation)\s*(banao|bana do|dikhao|dikha do|do|dein|chahiye|chaye)?/gi,
+        ''
+      )
+      .replace(/\b(banao|bana do|dikhao|dikha do|chahiye|chaye)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return {
+      prompt: cleanedPrompt.length >= 2 ? cleanedPrompt : trimmed,
+      style: inferredStyle,
+      aspectRatio: inferredRatio,
+    };
+  };
+
   // Main message sending handler with real local inference & streaming
   const handleSendMessage = async (text: string, attachedChunks?: any[]) => {
     if (!text.trim() || isGenerating) return;
 
-    // If the user is asking for an image in Chat, automatically check Pinterest first and return visual results in Chat
+    // Route video creation prompts to Video Studio (works Online & Offline)
     if (!attachedChunks || attachedChunks.length === 0) {
+      const chatVideoReq = extractChatVideoRequest(text);
+      if (chatVideoReq) {
+        await handleGenerateVideo(
+          {
+            prompt: chatVideoReq.prompt,
+            style: chatVideoReq.style,
+            aspectRatio: chatVideoReq.aspectRatio,
+            quality: 'standard',
+            durationSec: 4,
+          },
+          true,
+          text.trim()
+        );
+        return;
+      }
+
+      // If the user is asking for an image in Chat, automatically check Pinterest first and return visual results in Chat
       const chatImageReq = extractChatImageRequest(text);
       if (chatImageReq) {
         await handleGenerateImage(
@@ -851,6 +939,205 @@ export function OfflineGptWorkspace() {
     }
   };
 
+  // AI Video Generation handler (works identically in Online Mode & Offline Mode)
+  const handleGenerateVideo = async (
+    payload: VideoGenerationSubmitPayload,
+    addToChat: boolean = true,
+    displayUserMessage?: string
+  ) => {
+    if (!payload.prompt.trim() || isGeneratingVideo) return;
+
+    const uid = currentUser?.id || 'anonymous';
+    const ownerName = currentUser
+      ? [currentUser.firstName, currentUser.lastName].filter(Boolean).join(' ').trim()
+      : undefined;
+    const offlineMode = !isNetworkOnline || settings.offlineStrict;
+
+    setLastImageError(null);
+    let convId = activeConversationId;
+    let newlyCreatedConv: Conversation | null = null;
+    let chatUserMsg: Message | null = null;
+
+    if (addToChat) {
+      if (!convId) {
+        convId = 'conv-' + Date.now();
+        newlyCreatedConv = {
+          id: convId,
+          userId: currentUser?.id,
+          userEmail: currentUser?.email,
+          userName: ownerName,
+          title: (displayUserMessage || `Video: ${payload.prompt}`).slice(0, 28),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          modelName: 'Offnex Video Studio',
+          language,
+          messagesCount: 1,
+        };
+        await db.saveConversation(newlyCreatedConv);
+        setConversations((prev) => [newlyCreatedConv!, ...prev]);
+        setActiveConversationId(convId);
+      }
+
+      const timeString = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      chatUserMsg = {
+        id: 'msg-' + Date.now(),
+        conversationId: convId,
+        userId: currentUser?.id,
+        role: 'user',
+        content: displayUserMessage || `Create video: ${payload.prompt}`,
+        timestamp: timeString,
+        modelUsed: offlineMode ? 'Offnex Video Studio (Offline)' : 'Offnex Video Studio',
+      };
+      setMessages((prev) => [...prev, chatUserMsg!]);
+      await db.saveMessage(chatUserMsg);
+      void syncConversationToBackend(newlyCreatedConv || undefined, [chatUserMsg]);
+    }
+
+    setIsGeneratingVideo(true);
+
+    try {
+      let baseFrameUrl = payload.baseImageDataUrl;
+      if (!baseFrameUrl && !offlineMode) {
+        try {
+          const frameRes = await generateImageApi({
+            prompt: payload.prompt,
+            style: payload.style,
+            aspectRatio: payload.aspectRatio,
+            quality: payload.quality || 'standard',
+            count: 1,
+            provider: 'gemini',
+            userId: uid,
+            userEmail: currentUser?.email,
+            userName: ownerName,
+            offlineStrict: false,
+          });
+          baseFrameUrl = frameRes.images[0]?.dataUrl;
+        } catch {
+          // Fallback gracefully to on-device frame inside generatePlayableVideo
+        }
+      }
+
+      const videoRes = await generatePlayableVideo({
+        prompt: payload.prompt,
+        style: payload.style,
+        aspectRatio: payload.aspectRatio,
+        quality: payload.quality || 'standard',
+        durationSec: payload.durationSec || 4,
+        baseImageDataUrl: baseFrameUrl,
+        offlineMode,
+      });
+
+      if (addToChat && convId) {
+        const timeString = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const assistantMsg: Message = {
+          id: 'msg-' + (Date.now() + 1),
+          conversationId: convId,
+          userId: currentUser?.id,
+          role: 'assistant',
+          content:
+            videoRes.mode === 'offline'
+              ? 'Generated 100% offline on your device (No internet required).'
+              : 'Generated via Offnex Video Studio.',
+          timestamp: timeString,
+          modelUsed: videoRes.modelUsed,
+          videoGeneration: {
+            prompt: payload.prompt,
+            style: payload.style,
+            aspectRatio: payload.aspectRatio,
+            durationSec: videoRes.durationSec,
+            videoUrl: videoRes.videoUrl,
+            posterUrl: videoRes.posterUrl,
+            mimeType: videoRes.mimeType,
+            mode: videoRes.mode,
+          },
+        };
+
+        setMessages((prev) => [...prev, assistantMsg]);
+        await db.saveMessage(assistantMsg);
+
+        const targetConv = newlyCreatedConv || conversations.find((c) => c.id === convId);
+        if (targetConv) {
+          const updated: Conversation = {
+            ...targetConv,
+            userId: targetConv.userId || currentUser?.id,
+            userEmail: targetConv.userEmail || currentUser?.email,
+            userName: targetConv.userName || ownerName,
+            title:
+              targetConv.title === 'New Offline Chat'
+                ? `Video: ${payload.prompt.slice(0, 26)}`
+                : targetConv.title,
+            updatedAt: new Date().toISOString(),
+            messagesCount: (targetConv.messagesCount || 0) + (newlyCreatedConv ? 1 : 2),
+          };
+          await db.saveConversation(updated);
+          setConversations((prev) => prev.map((c) => (c.id === convId ? updated : c)));
+          void syncConversationToBackend(
+            updated,
+            chatUserMsg ? [chatUserMsg, assistantMsg] : [assistantMsg]
+          );
+        } else {
+          void syncConversationToBackend(undefined, [assistantMsg]);
+        }
+      }
+
+      const videoRecord: GeneratedImageRecord = {
+        id: 'vidrec-' + Date.now(),
+        userId: uid,
+        userEmail: currentUser?.email,
+        userName: ownerName,
+        conversationId: addToChat ? convId || undefined : undefined,
+        prompt: payload.prompt,
+        style: payload.style,
+        aspectRatio: payload.aspectRatio,
+        quality: payload.quality || 'standard',
+        count: 1,
+        modelUsed: videoRes.modelUsed,
+        provider: offlineMode ? 'local' : 'gemini',
+        images: [
+          {
+            id: 'poster-' + Date.now(),
+            dataUrl: videoRes.posterUrl,
+            mimeType: 'image/jpeg',
+          },
+        ],
+        mediaType: 'video',
+        videoUrl: videoRes.videoUrl,
+        createdAt: new Date().toISOString(),
+      };
+      await db.saveImageRecord(videoRecord);
+      void syncImageRecordToBackend(videoRecord);
+      setImageHistory((prev) => [videoRecord, ...prev]);
+    } catch (err: unknown) {
+      const errMsg = (err as Error)?.message || 'Video generation failed.';
+      setLastImageError(errMsg);
+      if (addToChat && convId) {
+        const timeString = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const errAssistantMsg: Message = {
+          id: 'msg-' + (Date.now() + 1),
+          conversationId: convId,
+          role: 'assistant',
+          content: '',
+          timestamp: timeString,
+          modelUsed: 'Offnex Video Studio',
+          videoGeneration: {
+            prompt: payload.prompt,
+            style: payload.style,
+            aspectRatio: payload.aspectRatio,
+            durationSec: payload.durationSec || 4,
+            videoUrl: '',
+            mimeType: 'video/webm',
+            mode: offlineMode ? 'offline' : 'online',
+            error: errMsg,
+          },
+        };
+        setMessages((prev) => [...prev, errAssistantMsg]);
+        await db.saveMessage(errAssistantMsg);
+      }
+    } finally {
+      setIsGeneratingVideo(false);
+    }
+  };
+
   const handleDeleteImageHistory = async (id: string) => {
     const uid = currentUser?.id || 'anonymous';
     await db.deleteImageRecord(id, uid);
@@ -1148,7 +1435,9 @@ export function OfflineGptWorkspace() {
               onSendMessage={handleSendMessage}
               isGenerating={isGenerating}
               isGeneratingImage={isGeneratingImage}
+              isGeneratingVideo={isGeneratingVideo}
               onGenerateImage={handleGenerateImage}
+              onGenerateVideo={handleGenerateVideo}
               imageHistory={imageHistory}
               onDeleteImageHistory={handleDeleteImageHistory}
               activeModel={activeModel}
@@ -1176,9 +1465,11 @@ export function OfflineGptWorkspace() {
             <ImagesView
               imageHistory={imageHistory}
               isGeneratingImage={isGeneratingImage}
+              isGeneratingVideo={isGeneratingVideo}
               lastImageError={lastImageError}
               onClearError={() => setLastImageError(null)}
               onGenerateImage={handleGenerateImage}
+              onGenerateVideo={handleGenerateVideo}
               onDeleteImageHistory={handleDeleteImageHistory}
               offlineStrict={settings.offlineStrict}
               onDisableOfflineMode={handleDisableOfflineMode}

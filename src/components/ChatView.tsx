@@ -23,6 +23,7 @@ import {
   Maximize2,
   AlertCircle,
   PanelLeft,
+  Film,
 } from 'lucide-react';
 import {
   Conversation,
@@ -38,6 +39,7 @@ import {
   ValidatedReferenceImage,
   downloadGeneratedImage,
 } from '../services/imageService';
+import { downloadGeneratedVideo } from '../services/offlineVideoEngine';
 import { ImageLightboxModal } from './ImageLightboxModal';
 
 export interface ImageGenerationSubmitPayload {
@@ -50,6 +52,15 @@ export interface ImageGenerationSubmitPayload {
   referenceImage?: ValidatedReferenceImage;
 }
 
+export interface VideoGenerationSubmitPayload {
+  prompt: string;
+  style: ImageStyle;
+  aspectRatio: ImageAspectRatio;
+  quality?: ImageQuality;
+  durationSec?: number;
+  baseImageDataUrl?: string;
+}
+
 interface ChatViewProps {
   conversations: Conversation[];
   activeConversationId: string | null;
@@ -60,7 +71,13 @@ interface ChatViewProps {
   onSendMessage: (text: string) => void;
   isGenerating: boolean;
   isGeneratingImage: boolean;
+  isGeneratingVideo?: boolean;
   onGenerateImage: (payload: ImageGenerationSubmitPayload) => Promise<void>;
+  onGenerateVideo?: (
+    payload: VideoGenerationSubmitPayload,
+    addToChat?: boolean,
+    displayUserMessage?: string
+  ) => Promise<void>;
   imageHistory: GeneratedImageRecord[];
   onDeleteImageHistory: (id: string) => void;
   activeModel: string;
@@ -84,7 +101,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   onSendMessage,
   isGenerating,
   isGeneratingImage,
+  isGeneratingVideo = false,
   onGenerateImage,
+  onGenerateVideo,
   activeModel,
   onVoiceClick,
   onUploadClick,
@@ -114,7 +133,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (messagesContainerRef.current) {
       messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
     }
-  }, [messages, isGenerating, isGeneratingImage]);
+  }, [messages, isGenerating, isGeneratingImage, isGeneratingVideo]);
 
   const filteredConversations = conversations.filter((c) =>
     c.title.toLowerCase().includes(searchQuery.toLowerCase())
@@ -606,16 +625,181 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                     provider: imgPayload.provider,
                                   })
                                 }
-                                disabled={isGeneratingImage}
+                                disabled={isGeneratingImage || isGeneratingVideo}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181D35] hover:bg-[#232A4A] text-purple-200 border border-purple-500/25 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50"
                               >
                                 <RefreshCw className="w-3.5 h-3.5" />
                                 <span>Regenerate</span>
                               </button>
 
+                              {onGenerateVideo && imgPayload.images[0] && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onGenerateVideo(
+                                      {
+                                        prompt: imgPayload.prompt,
+                                        style: imgPayload.style,
+                                        aspectRatio: imgPayload.aspectRatio,
+                                        quality: imgPayload.quality,
+                                        durationSec: 4,
+                                        baseImageDataUrl: imgPayload.images[0].dataUrl,
+                                      },
+                                      true,
+                                      `Animate video: ${imgPayload.prompt.slice(0, 40)}`
+                                    )
+                                  }
+                                  disabled={isGeneratingVideo}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181D35] hover:bg-[#232A4A] text-cyan-200 border border-cyan-500/25 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  <Film className="w-3.5 h-3.5" />
+                                  <span>Animate Video</span>
+                                </button>
+                              )}
+
                               <button
                                 type="button"
                                 onClick={() => handleCopy(msg.id, imgPayload.prompt)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181D35] hover:bg-[#232A4A] text-gray-200 border border-[#272D4D] text-[11px] font-medium transition-colors cursor-pointer"
+                              >
+                                {copiedId === msg.id ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                    <span className="text-emerald-400">Copied</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5" />
+                                    <span>Copy Prompt</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+
+                            <span className="text-[10px] text-gray-400">{msg.timestamp}</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+
+              // Assistant message with Video Generation result or error
+              if (msg.videoGeneration) {
+                const vidPayload = msg.videoGeneration;
+                return (
+                  <div key={msg.id} className="flex items-start gap-2 sm:gap-3 max-w-3xl mr-auto w-full">
+                    <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-[#4435D5] to-[#7547FF] p-0.5 shrink-0 shadow-md shadow-purple-600/30 glow-purple">
+                      <div className="w-full h-full bg-[#111426] rounded-xl flex items-center justify-center">
+                        <Film className="w-4 h-4 sm:w-5 sm:h-5 text-[#8C62FF]" />
+                      </div>
+                    </div>
+
+                    <div className="flex-1 min-w-0 glass-panel rounded-2xl rounded-tl-sm p-3 sm:p-4 shadow-xl space-y-3 border border-purple-500/25">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                            <Film className="w-3.5 h-3.5 text-purple-400" />
+                            <span>AI Video Studio</span>
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-600/20 text-purple-300 border border-purple-500/25">
+                            {vidPayload.style}
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#181D35] text-gray-300 border border-[#272D4D]">
+                            {vidPayload.aspectRatio}
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-[#181D35] text-gray-300 border border-[#272D4D]">
+                            {vidPayload.durationSec}s • {vidPayload.mode === 'offline' ? 'Offline' : 'Online'}
+                          </span>
+                        </div>
+                        {msg.modelUsed && (
+                          <span className="text-[10px] text-gray-400">{msg.modelUsed}</span>
+                        )}
+                      </div>
+
+                      {vidPayload.error ? (
+                        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-200 space-y-2">
+                          <div className="flex items-start gap-2">
+                            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                            <p className="leading-relaxed">{vidPayload.error}</p>
+                          </div>
+                          {onGenerateVideo && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onGenerateVideo({
+                                  prompt: vidPayload.prompt,
+                                  style: vidPayload.style,
+                                  aspectRatio: vidPayload.aspectRatio,
+                                  durationSec: vidPayload.durationSec,
+                                })
+                              }
+                              disabled={isGeneratingVideo}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-white text-[11px] font-semibold border border-rose-500/30 transition-colors cursor-pointer"
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              <span>Try Again</span>
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <div className="rounded-xl overflow-hidden bg-[#070812] border border-white/10 shadow-lg">
+                            <video
+                              src={vidPayload.videoUrl}
+                              poster={vidPayload.posterUrl}
+                              controls
+                              autoPlay
+                              loop
+                              playsInline
+                              muted
+                              className="w-full max-h-[440px] object-contain"
+                            />
+                          </div>
+
+                          {msg.content && (
+                            <p className="text-xs text-gray-300 leading-relaxed">{msg.content}</p>
+                          )}
+
+                          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#222846]">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadGeneratedVideo(
+                                    vidPayload.videoUrl,
+                                    vidPayload.prompt.slice(0, 32)
+                                  )
+                                }
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[#4435D5] to-[#7547FF] hover:from-[#5140E8] hover:to-[#865CFF] text-white text-[11px] font-semibold transition-all cursor-pointer"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Download Video</span>
+                              </button>
+
+                              {onGenerateVideo && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onGenerateVideo({
+                                      prompt: vidPayload.prompt,
+                                      style: vidPayload.style,
+                                      aspectRatio: vidPayload.aspectRatio,
+                                      durationSec: vidPayload.durationSec,
+                                    })
+                                  }
+                                  disabled={isGeneratingVideo}
+                                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181D35] hover:bg-[#232A4A] text-purple-200 border border-purple-500/25 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                  <span>Regenerate</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(msg.id, vidPayload.prompt)}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#181D35] hover:bg-[#232A4A] text-gray-200 border border-[#272D4D] text-[11px] font-medium transition-colors cursor-pointer"
                               >
                                 {copiedId === msg.id ? (
@@ -724,6 +908,29 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <Sparkles className="w-7 h-7 text-purple-400 animate-bounce" />
                   <span className="text-[11px] text-purple-200 font-medium">
                     Generating visual...
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+          {/* Dedicated Video Generation Loading Animation */}
+          {isGeneratingVideo && (
+            <div className="flex items-start gap-2 sm:gap-3 max-w-xl mr-auto">
+              <div className="w-7 h-7 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-tr from-[#4435D5] to-[#7547FF] p-0.5 shrink-0 shadow-md shadow-purple-600/30 glow-purple">
+                <div className="w-full h-full bg-[#111426] rounded-xl flex items-center justify-center">
+                  <Film className="w-4 h-4 sm:w-5 sm:h-5 text-purple-300 animate-pulse" />
+                </div>
+              </div>
+              <div className="flex-1 min-w-0 glass-panel rounded-2xl rounded-tl-sm p-3 sm:p-4 border border-purple-500/30 space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <RotateCw className="w-4 h-4 text-purple-400 animate-spin" />
+                  <span className="text-xs font-bold text-white">Rendering your video...</span>
+                </div>
+                <div className="relative h-44 w-full rounded-xl bg-gradient-to-br from-[#161932] via-[#211B45] to-[#121528] border border-purple-500/20 overflow-hidden flex flex-col items-center justify-center gap-2">
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-purple-500/15 to-transparent animate-pulse" />
+                  <Film className="w-7 h-7 text-purple-400 animate-bounce" />
+                  <span className="text-[11px] text-purple-200 font-medium">
+                    Animating frames &amp; encoding video...
                   </span>
                 </div>
               </div>

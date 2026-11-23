@@ -392,6 +392,31 @@ export class OfflineAIEngine {
     return null;
   }
 
+  private handleVideoScripts(prompt: string, isUrdu: boolean): string | null {
+    const p = prompt.toLowerCase();
+    const isVideoScriptReq =
+      /\b(video|youtube|tiktok|reels?|shorts|storyboard|intro video|promo video)\b/i.test(p) &&
+      /\b(script|storyboard|outline|idea|ideas|plan|editing|edit|title|caption|hashtags|kaise banayein|kaise banaen|guide|tips|tutorial)\b/i.test(
+        p
+      );
+    if (!isVideoScriptReq) return null;
+
+    const topic =
+      prompt
+        .replace(
+          /\b(write|make|give|create|for|a|an|the|youtube|tiktok|reels?|shorts|video|script|storyboard|editing|guide|likho|do|dein|batao|ka|ki|ke|par|per|pe)\b/gi,
+          ''
+        )
+        .replace(/\s+/g, ' ')
+        .trim() || 'Creative Story';
+
+    if (isUrdu) {
+      return `### Video Script & Shot Plan: "${topic}" (Offline Mode)\n\n**1. Hook (0:00 – 0:05)**\n- **Visual:** Tez dynamic close-up / glowing title screen.\n- **Voiceover:** *"Kya aap ne kabhi socha hai ke **${topic}** aap ki soch se zyada aasan aur zabardast ho sakta hai?"*\n\n**2. Main Scenes (0:05 – 0:25)**\n- **Scene 1 (Problem/Context):** Audience ka real masla dikhayein aur clear visuals chalayein.\n- **Scene 2 (Solution / Magic Moment):** **${topic}** ke 3 aham points screen text (bold captions) ke sath dikhayein.\n- **Scene 3 (Proof / Example):** Smooth zoom-in shot + before/after ya live result dikhayein.\n\n**3. Outro & Call-to-Action (0:25 – 0:30)**\n- **Visual:** Clean end-screen card.\n- **Voiceover:** *"Agar yeh video pasand aayi to Like, Share aur Follow zaroor karein!"*\n\n**Tip:** Agar aap direct playable **animated video** banana chahtay hain to likhein: *"${topic} ki video banao"* ya **Studio** tab mein **Video** mode select karein.`;
+    }
+
+    return `### Video Script & Scene Breakdown: "${topic}" (Offline Mode)\n\n**1. Hook (0:00 – 0:05)**\n- **Visual:** Fast zoom-in opening shot with bold kinetic title text.\n- **Voiceover:** *"Here is everything you need to know about **${topic}** in under 30 seconds."*\n\n**2. Core Scenes (0:05 – 0:25)**\n- **Scene 1 — Context:** Introduce the key problem or question cleanly with crisp b-roll.\n- **Scene 2 — 3 Takeaways:** Highlight 3 actionable steps or facts with on-screen captions.\n- **Scene 3 — Visual Highlight:** Smooth cinematic pan over the main result.\n\n**3. Call to Action (0:25 – 0:30)**\n- **Visual:** Clean branded outro card.\n- **Voiceover:** *"Save this video for later and follow for more!"*\n\n*Tip: Want a real playable animated clip? Type **"Create a video of ${topic}"** or switch Studio to **Video** mode.*`;
+  }
+
   private async handleDocumentsAndNotes(
     prompt: string,
     context?: OfflineAIContext
@@ -558,6 +583,12 @@ export class OfflineAIEngine {
     const writingRes = this.handleWritingAndTemplates(trimmed, isUrdu);
     if (writingRes) {
       return { text: writingRes, suggestedActions: ['Summary', 'More Details'] };
+    }
+
+    // 8b. Video Scripts & Storyboards
+    const videoScriptRes = this.handleVideoScripts(trimmed, isUrdu);
+    if (videoScriptRes) {
+      return { text: videoScriptRes, suggestedActions: ['Summary', 'More Details'] };
     }
 
     // 9. Curated Knowledge Base match

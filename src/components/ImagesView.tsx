@@ -18,6 +18,7 @@ import {
   Sparkles,
   Image as ImageIcon,
   Calendar,
+  Film,
 } from 'lucide-react';
 import {
   GeneratedImageRecord,
@@ -38,7 +39,8 @@ import {
   fetchLocalImageStatus,
   validateAndReadReferenceImage,
 } from '../services/imageService';
-import { ImageGenerationSubmitPayload } from './ChatView';
+import { downloadGeneratedVideo } from '../services/offlineVideoEngine';
+import { ImageGenerationSubmitPayload, VideoGenerationSubmitPayload } from './ChatView';
 import { ImageLightboxModal } from './ImageLightboxModal';
 import animeReactionImg from '../assets/images/anime_reaction_card_1794996270764.jpg';
 import aerialViewImg from '../assets/images/aerial_view_card_1794996270102.jpg';
@@ -69,9 +71,11 @@ import tplStickerPackImg from '../assets/images/tpl_sticker_pack_card_1794996278
 interface ImagesViewProps {
   imageHistory: GeneratedImageRecord[];
   isGeneratingImage: boolean;
+  isGeneratingVideo?: boolean;
   lastImageError: string | null;
   onClearError: () => void;
   onGenerateImage: (payload: ImageGenerationSubmitPayload, addToChat?: boolean) => Promise<void>;
+  onGenerateVideo?: (payload: VideoGenerationSubmitPayload, addToChat?: boolean) => Promise<void>;
   onDeleteImageHistory: (id: string) => void;
   offlineStrict: boolean;
   onDisableOfflineMode?: () => void;
@@ -431,9 +435,11 @@ const PresetArtwork: React.FC<{ item: PresetCardItem }> = ({ item }) => {
 export const ImagesView: React.FC<ImagesViewProps> = ({
   imageHistory,
   isGeneratingImage,
+  isGeneratingVideo = false,
   lastImageError,
   onClearError,
   onGenerateImage,
+  onGenerateVideo,
   onDeleteImageHistory,
   offlineStrict,
   onDisableOfflineMode,
@@ -441,6 +447,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
   dailyQuota,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'trending' | 'templates' | 'my_images'>('trending');
+  const [mediaMode, setMediaMode] = useState<'image' | 'video'>('image');
   const [prompt, setPrompt] = useState('');
   const [style, setStyle] = useState<ImageStyle>('Realistic Photography');
   const [aspectRatio, setAspectRatio] = useState<ImageAspectRatio>('1:1');
@@ -509,12 +516,29 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
     }
   };
 
+  const isBusy = isGeneratingImage || isGeneratingVideo;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prompt.trim() || isGeneratingImage) return;
+    if (!prompt.trim() || isBusy) return;
     setRefError(null);
     onClearError();
     setActiveSubTab('my_images');
+    if (mediaMode === 'video' && onGenerateVideo) {
+      await onGenerateVideo(
+        {
+          prompt: prompt.trim(),
+          style,
+          aspectRatio,
+          quality,
+          durationSec: 4,
+          baseImageDataUrl: referenceImage?.previewUrl,
+        },
+        false
+      );
+      setPrompt('');
+      return;
+    }
     await onGenerateImage(
       {
         prompt: prompt.trim(),
@@ -551,7 +575,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
         {/* Top Header */}
         <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">Images</h1>
+            <h1 className="text-xl sm:text-2xl font-extrabold text-white tracking-tight">Media Studio</h1>
             <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-600/20 text-purple-300 border border-purple-500/30 font-semibold">
               Offnex AI Studio
             </span>
@@ -624,7 +648,7 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
                 : 'text-gray-400 hover:text-white hover:bg-[#14172B]'
             }`}
           >
-            <span>My images</span>
+            <span>My gallery</span>
             {imageHistory.length > 0 && (
               <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-600/40 text-purple-200 font-bold">
                 {imageHistory.length}
@@ -700,28 +724,36 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
         {activeSubTab === 'my_images' && (
           <div className="space-y-4">
             {/* Active Generation Loading Animation */}
-            {isGeneratingImage && (
+            {isBusy && (
               <div className="glass-panel rounded-2xl p-5 border border-purple-500/35 space-y-3 max-w-2xl">
                 <div className="flex items-center gap-2.5">
                   <RotateCw className="w-4 h-4 text-purple-400 animate-spin" />
-                  <span className="text-sm font-bold text-white">Creating your image...</span>
+                  <span className="text-sm font-bold text-white">
+                    {isGeneratingVideo ? 'Rendering your video...' : 'Creating your image...'}
+                  </span>
                 </div>
                 <div className="relative h-52 w-full rounded-xl bg-gradient-to-br from-[#161932] via-[#221C4A] to-[#121528] border border-purple-500/20 overflow-hidden flex flex-col items-center justify-center gap-2">
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-purple-500/15 to-transparent animate-pulse" />
-                  <Sparkles className="w-8 h-8 text-purple-400 animate-bounce" />
+                  {isGeneratingVideo ? (
+                    <Film className="w-8 h-8 text-purple-400 animate-bounce" />
+                  ) : (
+                    <Sparkles className="w-8 h-8 text-purple-400 animate-bounce" />
+                  )}
                   <span className="text-xs text-purple-200 font-medium">
-                    {style} • {aspectRatio} • {count > 1 ? `${count} images` : '1 image'}
+                    {isGeneratingVideo
+                      ? `${style} • ${aspectRatio} • 4s Video`
+                      : `${style} • ${aspectRatio} • ${count > 1 ? `${count} images` : '1 image'}`}
                   </span>
                 </div>
               </div>
             )}
 
-            {imageHistory.length === 0 && !isGeneratingImage ? (
+            {imageHistory.length === 0 && !isBusy ? (
               <div className="h-72 flex flex-col items-center justify-center text-center p-6 rounded-2xl bg-[#111426] border border-dashed border-[#262C4A]">
                 <ImageIcon className="w-10 h-10 text-gray-500 mb-3" />
-                <h3 className="text-sm font-bold text-white">No generated images yet</h3>
+                <h3 className="text-sm font-bold text-white">No generated images or videos yet</h3>
                 <p className="text-xs text-gray-400 max-w-sm mt-1">
-                  Pick any Trending style or describe a new image in the prompt bar below to create your first visual.
+                  Pick any Trending style or describe a new image or video in the prompt bar below.
                 </p>
               </div>
             ) : (
@@ -729,51 +761,70 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
                 {imageHistory.map((rec) => {
                   const fmt = formatMap[rec.id] || 'png';
                   const primaryImg = rec.images[0];
+                  const isVideoRecord = rec.mediaType === 'video' && Boolean(rec.videoUrl);
                   return (
                     <div
                       key={rec.id}
                       className="glass-panel rounded-2xl p-3.5 border border-[#242A48] hover:border-purple-500/40 transition-all space-y-3 flex flex-col justify-between"
                     >
-                      <div className={`grid gap-2 ${rec.images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                        {rec.images.map((img) => (
-                          <div
-                            key={img.id}
-                            onClick={() =>
-                              setLightbox({
-                                isOpen: true,
-                                imageUrl: img.dataUrl,
-                                prompt: rec.prompt,
-                                style: rec.style,
-                                aspectRatio: rec.aspectRatio,
-                                modelUsed: rec.modelUsed,
-                                createdAt: rec.createdAt,
-                                onRegenerate: () =>
-                                  onGenerateImage(
-                                    {
-                                      prompt: rec.prompt,
-                                      style: rec.style,
-                                      aspectRatio: rec.aspectRatio,
-                                      quality: rec.quality,
-                                      count: rec.count,
-                                      provider: rec.provider,
-                                    },
-                                    false
-                                  ),
-                              })
-                            }
-                            className="relative group rounded-xl overflow-hidden bg-[#070812] border border-white/10 cursor-pointer"
-                          >
-                            <img
-                              src={img.dataUrl}
-                              alt={rec.prompt}
-                              className="w-full h-56 object-cover group-hover:scale-[1.02] transition-transform duration-300"
-                            />
-                            <div className="absolute top-2 right-2 p-2 rounded-lg bg-black/70 text-white opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
-                              <Maximize2 className="w-3.5 h-3.5" />
-                            </div>
+                      {isVideoRecord && rec.videoUrl ? (
+                        <div className="relative rounded-xl overflow-hidden bg-[#070812] border border-white/10">
+                          <video
+                            src={rec.videoUrl}
+                            poster={primaryImg?.dataUrl}
+                            controls
+                            loop
+                            playsInline
+                            muted
+                            className="w-full h-56 object-cover"
+                          />
+                          <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/75 text-purple-200 text-[10px] font-semibold flex items-center gap-1 border border-purple-500/30 pointer-events-none">
+                            <Film className="w-3 h-3" />
+                            <span>Video</span>
                           </div>
-                        ))}
-                      </div>
+                        </div>
+                      ) : (
+                        <div className={`grid gap-2 ${rec.images.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                          {rec.images.map((img) => (
+                            <div
+                              key={img.id}
+                              onClick={() =>
+                                setLightbox({
+                                  isOpen: true,
+                                  imageUrl: img.dataUrl,
+                                  prompt: rec.prompt,
+                                  style: rec.style,
+                                  aspectRatio: rec.aspectRatio,
+                                  modelUsed: rec.modelUsed,
+                                  createdAt: rec.createdAt,
+                                  onRegenerate: () =>
+                                    onGenerateImage(
+                                      {
+                                        prompt: rec.prompt,
+                                        style: rec.style,
+                                        aspectRatio: rec.aspectRatio,
+                                        quality: rec.quality,
+                                        count: rec.count,
+                                        provider: rec.provider,
+                                      },
+                                      false
+                                    ),
+                                })
+                              }
+                              className="relative group rounded-xl overflow-hidden bg-[#070812] border border-white/10 cursor-pointer"
+                            >
+                              <img
+                                src={img.dataUrl}
+                                alt={rec.prompt}
+                                className="w-full h-56 object-cover group-hover:scale-[1.02] transition-transform duration-300"
+                              />
+                              <div className="absolute top-2 right-2 p-2 rounded-lg bg-black/70 text-white opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                <Maximize2 className="w-3.5 h-3.5" />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
 
                       <div className="space-y-2">
                         <p className="text-xs text-gray-200 font-medium line-clamp-2">{rec.prompt}</p>
@@ -792,61 +843,109 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
                         </div>
 
                         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#1F243D]">
-                          <div className="flex items-center gap-1.5">
-                            {primaryImg && (
-                              <div className="flex items-center bg-[#14182E] border border-purple-500/30 rounded-lg overflow-hidden">
-                                <select
-                                  value={fmt}
-                                  onChange={(e) =>
-                                    setFormatMap((prev) => ({
-                                      ...prev,
-                                      [rec.id]: e.target.value as 'png' | 'jpeg',
-                                    }))
-                                  }
-                                  aria-label="Download format"
-                                  className="bg-transparent text-[10px] text-gray-200 px-1.5 py-1 focus:outline-none cursor-pointer"
-                                >
-                                  <option value="png" className="bg-[#14172B]">PNG</option>
-                                  <option value="jpeg" className="bg-[#14172B]">JPG</option>
-                                </select>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    downloadGeneratedImage(
-                                      primaryImg.dataUrl,
-                                      rec.prompt.slice(0, 32),
-                                      fmt
-                                    )
-                                  }
-                                  className="px-2.5 py-1 bg-gradient-to-r from-[#4435D5] to-[#7547FF] text-white text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
-                                >
-                                  <Download className="w-3 h-3" />
-                                  <span>Save</span>
-                                </button>
-                              </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {isVideoRecord && rec.videoUrl ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  downloadGeneratedVideo(rec.videoUrl!, rec.prompt.slice(0, 32))
+                                }
+                                className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-[#4435D5] to-[#7547FF] text-white text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                              >
+                                <Download className="w-3 h-3" />
+                                <span>Save Video</span>
+                              </button>
+                            ) : (
+                              primaryImg && (
+                                <div className="flex items-center bg-[#14182E] border border-purple-500/30 rounded-lg overflow-hidden">
+                                  <select
+                                    value={fmt}
+                                    onChange={(e) =>
+                                      setFormatMap((prev) => ({
+                                        ...prev,
+                                        [rec.id]: e.target.value as 'png' | 'jpeg',
+                                      }))
+                                    }
+                                    aria-label="Download format"
+                                    className="bg-transparent text-[10px] text-gray-200 px-1.5 py-1 focus:outline-none cursor-pointer"
+                                  >
+                                    <option value="png" className="bg-[#14172B]">PNG</option>
+                                    <option value="jpeg" className="bg-[#14172B]">JPG</option>
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      downloadGeneratedImage(
+                                        primaryImg.dataUrl,
+                                        rec.prompt.slice(0, 32),
+                                        fmt
+                                      )
+                                    }
+                                    className="px-2.5 py-1 bg-gradient-to-r from-[#4435D5] to-[#7547FF] text-white text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Download className="w-3 h-3" />
+                                    <span>Save</span>
+                                  </button>
+                                </div>
+                              )
                             )}
 
                             <button
                               type="button"
                               onClick={() =>
-                                onGenerateImage(
-                                  {
-                                    prompt: rec.prompt,
-                                    style: rec.style,
-                                    aspectRatio: rec.aspectRatio,
-                                    quality: rec.quality,
-                                    count: rec.count,
-                                    provider: rec.provider,
-                                  },
-                                  false
-                                )
+                                isVideoRecord && onGenerateVideo
+                                  ? onGenerateVideo(
+                                      {
+                                        prompt: rec.prompt,
+                                        style: rec.style,
+                                        aspectRatio: rec.aspectRatio,
+                                        quality: rec.quality,
+                                        durationSec: 4,
+                                      },
+                                      false
+                                    )
+                                  : onGenerateImage(
+                                      {
+                                        prompt: rec.prompt,
+                                        style: rec.style,
+                                        aspectRatio: rec.aspectRatio,
+                                        quality: rec.quality,
+                                        count: rec.count,
+                                        provider: rec.provider,
+                                      },
+                                      false
+                                    )
                               }
-                              disabled={isGeneratingImage}
+                              disabled={isBusy}
                               title="Regenerate"
                               className="p-1.5 rounded-lg bg-[#181D35] hover:bg-[#232A4A] text-purple-200 border border-purple-500/25 cursor-pointer disabled:opacity-50"
                             >
                               <RefreshCw className="w-3.5 h-3.5" />
                             </button>
+
+                            {!isVideoRecord && onGenerateVideo && primaryImg && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onGenerateVideo(
+                                    {
+                                      prompt: rec.prompt,
+                                      style: rec.style,
+                                      aspectRatio: rec.aspectRatio,
+                                      quality: rec.quality,
+                                      durationSec: 4,
+                                      baseImageDataUrl: primaryImg.dataUrl,
+                                    },
+                                    false
+                                  )
+                                }
+                                disabled={isBusy}
+                                title="Animate to Video"
+                                className="p-1.5 rounded-lg bg-[#181D35] hover:bg-[#232A4A] text-cyan-200 border border-cyan-500/25 cursor-pointer disabled:opacity-50"
+                              >
+                                <Film className="w-3.5 h-3.5" />
+                              </button>
+                            )}
 
                             <button
                               type="button"
@@ -1034,18 +1133,18 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
             </div>
           )}
 
-          {isDailyLimitReached && (
+          {isDailyLimitReached && mediaMode === 'image' && (
             <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl bg-rose-500/15 border border-rose-500/30 text-[11px] text-rose-300 font-medium">
               <span>
-                Aaj ki {dailyLimit} images ki daily limit poori ho chuki hai. Free Chat bina limit ke available hai — kal dubara {dailyLimit} images bana saktay hain.
+                Aaj ki {dailyLimit} images ki daily limit poori ho chuki hai. Free Chat aur Video Studio bina limit ke available hain — kal dubara {dailyLimit} images bana saktay hain.
               </span>
             </div>
           )}
 
-          {/* Main Floating Pill Prompt Bar */}
+          {/* Main Floating Prompt Bar */}
           <form
             onSubmit={handleSubmit}
-            className="flex items-center gap-1.5 sm:gap-2 bg-[#16192E]/95 backdrop-blur-xl border border-purple-500/35 rounded-full px-2.5 sm:px-3 py-1.5 sm:py-2 shadow-2xl shadow-black/60 focus-within:border-purple-500 focus-within:ring-2 focus-within:ring-purple-500/20 transition-all"
+            className="flex items-center gap-1.5 sm:gap-2 bg-[#16192E]/95 backdrop-blur-xl border border-purple-500/35 rounded-full px-2 sm:px-3 py-1.5 sm:py-2 shadow-2xl shadow-black/60 focus-within:border-purple-500 focus-within:ring-2 focus-within:ring-purple-500/20 transition-all"
           >
             <button
               type="button"
@@ -1056,14 +1155,45 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
               <Plus className="w-4 h-4" />
             </button>
 
+            {onGenerateVideo && (
+              <div className="flex items-center bg-[#0B0D18] border border-[#272D4D] rounded-full p-0.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setMediaMode('image')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer ${
+                    mediaMode === 'image'
+                      ? 'bg-[#20243C] text-white'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <ImageIcon className="w-3 h-3" />
+                  <span className="hidden sm:inline">Image</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMediaMode('video')}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer ${
+                    mediaMode === 'video'
+                      ? 'bg-gradient-to-r from-[#4435D5] to-[#7547FF] text-white'
+                      : 'text-gray-400 hover:text-white'
+                  }`}
+                >
+                  <Film className="w-3 h-3" />
+                  <span className="hidden sm:inline">Video</span>
+                </button>
+              </div>
+            )}
+
             <input
               ref={promptInputRef}
               type="text"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              disabled={isDailyLimitReached}
+              disabled={mediaMode === 'image' && isDailyLimitReached}
               placeholder={
-                isDailyLimitReached
+                mediaMode === 'video'
+                  ? 'Describe a video scene (Online & Offline)...'
+                  : isDailyLimitReached
                   ? `Daily limit reached (${dailyLimit}/${dailyLimit} images today)`
                   : 'Describe a new image'
               }
@@ -1086,12 +1216,20 @@ export const ImagesView: React.FC<ImagesViewProps> = ({
 
             <button
               type="submit"
-              disabled={!prompt.trim() || isGeneratingImage || isDailyLimitReached}
-              title={isDailyLimitReached ? 'Daily limit of 10 images reached' : 'Generate Image'}
+              disabled={!prompt.trim() || isBusy || (mediaMode === 'image' && isDailyLimitReached)}
+              title={
+                mediaMode === 'video'
+                  ? 'Generate Video'
+                  : isDailyLimitReached
+                  ? 'Daily limit of 10 images reached'
+                  : 'Generate Image'
+              }
               className="w-9 h-9 sm:w-9 sm:h-9 rounded-full bg-gradient-to-tr from-[#4435D5] to-[#7547FF] hover:from-[#5140E8] hover:to-[#865CFF] text-white flex items-center justify-center shadow-lg shadow-purple-600/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all transform active:scale-95 cursor-pointer shrink-0"
             >
-              {isGeneratingImage ? (
+              {isBusy ? (
                 <RotateCw className="w-4 h-4 animate-spin" />
+              ) : mediaMode === 'video' ? (
+                <Film className="w-4 h-4" />
               ) : (
                 <Wand2 className="w-4 h-4" />
               )}
