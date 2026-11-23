@@ -1,9 +1,11 @@
 {
-  "revision": 8,
-  "updatedAt": "2026-11-23T10:11:09.888Z",
+  "revision": 22,
+  "updatedAt": "2026-11-23T10:17:07.753Z",
   "deletedUserIds": [],
   "deletedConversationIds": [
     "conv-verify-1795428669351"
   ],
-  "deletedImageIds": []
+  "deletedImageIds": [
+    "imgrec-verify-1795429026973"
+  ]
 }

@@ -15,9 +15,12 @@ export async function GET(req: NextRequest) {
   const all = searchParams.get('all') === '1';
   const meta = getRequestUserMeta(req);
   const userId = all ? undefined : searchParams.get('userId') || meta.userId;
+  const userEmail = all ? undefined : searchParams.get('userEmail') || meta.userEmail;
 
   return NextResponse.json({
-    images: listBackendImages(userId),
+    images: listBackendImages(
+      userId || userEmail ? { userId, userEmail } : undefined
+    ),
   });
 }
 

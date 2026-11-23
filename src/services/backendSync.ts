@@ -91,11 +91,15 @@ export async function deleteImageRecordOnBackend(id: string, userId?: string): P
 }
 
 export async function fetchUserImagesFromBackend(
-  userId: string
+  userId: string,
+  userEmail?: string
 ): Promise<GeneratedImageRecord[] | null> {
-  if (!isOnline() || !userId) return null;
+  if (!isOnline() || (!userId && !userEmail)) return null;
   try {
-    const res = await fetch(`/api/images?userId=${encodeURIComponent(userId)}`, {
+    const qs = new URLSearchParams();
+    if (userId) qs.set('userId', userId);
+    if (userEmail) qs.set('userEmail', userEmail);
+    const res = await fetch(`/api/images?${qs.toString()}`, {
       cache: 'no-store',
     });
     if (!res.ok) return null;

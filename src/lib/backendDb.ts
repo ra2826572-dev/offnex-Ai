@@ -298,7 +298,23 @@ function getState(): BackendDbState {
     writeJsonAtomic(FILES.conversations, conversations);
   }
   const messages = readJsonSafe<Message[]>(FILES.messages, []);
-  const images = readJsonSafe<GeneratedImageRecord[]>(FILES.images, []);
+  const rawImages = readJsonSafe<GeneratedImageRecord[]>(FILES.images, []);
+  const imagesList = Array.isArray(rawImages) ? rawImages : [];
+  let enrichedAnyImg = false;
+  const images = imagesList.map((rec) => {
+    const next = enrichImageRecordWithUser(rec, users);
+    if (
+      next.userId !== rec.userId ||
+      next.userEmail !== rec.userEmail ||
+      next.userName !== rec.userName
+    ) {
+      enrichedAnyImg = true;
+    }
+    return next;
+  });
+  if (enrichedAnyImg) {
+    writeJsonAtomic(FILES.images, images);
+  }
   const documents = readJsonSafe<StoredDocumentSummary[]>(FILES.documents, []);
   const tickets = readJsonSafe<SupportTicket[]>(FILES.tickets, []);
 
@@ -858,11 +874,64 @@ export function deleteBackendConversation(id: string): boolean {
 
 // ==================== IMAGES ====================
 
-export function listBackendImages(userId?: string): GeneratedImageRecord[] {
+function enrichImageRecordWithUser(
+  record: GeneratedImageRecord,
+  users: StoredUserRecord[]
+): GeneratedImageRecord {
+  const matched = resolveStoredUserForRef(users, record.userId, record.userEmail);
+  const fullName = matched
+    ? [matched.firstName, matched.lastName].filter(Boolean).join(' ').trim() || matched.email
+    : undefined;
+  const resolvedEmail = (record.userEmail?.trim() || matched?.email || '').toLowerCase() || undefined;
+  const resolvedUserId =
+    (record.userId && record.userId !== 'anonymous' ? record.userId.trim() : '') ||
+    matched?.id ||
+    record.userId ||
+    'anonymous';
+  const resolvedName = record.userName?.trim() || fullName || resolvedEmail || undefined;
+
+  return {
+    ...record,
+    userId: resolvedUserId,
+    ...(resolvedEmail ? { userEmail: resolvedEmail } : {}),
+    ...(resolvedName ? { userName: resolvedName } : {}),
+  };
+}
+
+export function listBackendImages(
+  filter?: string | { userId?: string; userEmail?: string }
+): GeneratedImageRecord[] {
   const state = getState();
-  const list = userId
-    ? state.images.filter((img) => img.userId === userId)
-    : state.images;
+  const filterObj =
+    typeof filter === 'string' ? { userId: filter } : filter || undefined;
+  const targetUser = resolveStoredUserForRef(
+    state.users,
+    filterObj?.userId,
+    filterObj?.userEmail
+  );
+  const targetId =
+    (filterObj?.userId?.trim() && filterObj.userId.trim() !== 'anonymous'
+      ? filterObj.userId.trim()
+      : undefined) || targetUser?.id;
+  const targetEmail = (
+    filterObj?.userEmail?.trim() || targetUser?.email || ''
+  ).toLowerCase();
+
+  const enrichedAll = state.images.map((rec) =>
+    enrichImageRecordWithUser(rec, state.users)
+  );
+
+  const list =
+    targetId || targetEmail
+      ? enrichedAll.filter((img) => {
+          const matchesId = Boolean(targetId && img.userId === targetId);
+          const matchesEmail = Boolean(
+            targetEmail && img.userEmail?.toLowerCase() === targetEmail
+          );
+          return matchesId || matchesEmail;
+        })
+      : enrichedAll;
+
   return [...list].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
   );
@@ -876,12 +945,15 @@ export function saveBackendImageRecord(record: GeneratedImageRecord): GeneratedI
     dataUrl: persistImageDataUrl(item.dataUrl, `gen_${record.id || Date.now()}_${idx}`),
   }));
 
-  const normalized: GeneratedImageRecord = {
-    ...record,
-    images: persistedImages,
-    count: persistedImages.length || record.count || 1,
-    createdAt: record.createdAt || new Date().toISOString(),
-  };
+  const normalized = enrichImageRecordWithUser(
+    {
+      ...record,
+      images: persistedImages,
+      count: persistedImages.length || record.count || 1,
+      createdAt: record.createdAt || new Date().toISOString(),
+    },
+    state.users
+  );
 
   const idx = state.images.findIndex((r) => r.id === normalized.id);
   if (idx !== -1) {
@@ -1401,7 +1473,10 @@ export function getBackendLiveSyncSnapshot(options?: {
     uid || uEmail
       ? listBackendConversations({ userId: uid, userEmail: uEmail })
       : listBackendConversations();
-  const userImgs = uid ? listBackendImages(uid) : state.images;
+  const userImgs =
+    uid || uEmail
+      ? listBackendImages({ userId: uid, userEmail: uEmail })
+      : listBackendImages();
   const userTickets = uid || uEmail ? listBackendTickets(uid, uEmail) : state.tickets;
   const userDocs = uid ? listBackendDocuments(uid) : state.documents;
 

@@ -317,7 +317,7 @@ export function OfflineGptWorkspace() {
 
       if (syncedUser?.id) {
         const localImgs = await db.getImageHistory(syncedUser.id);
-        const backendImgs = await fetchUserImagesFromBackend(syncedUser.id);
+        const backendImgs = await fetchUserImagesFromBackend(syncedUser.id, syncedUser.email);
         if (backendImgs) {
           const imgMap = new Map<string, GeneratedImageRecord>();
           for (const rec of localImgs) imgMap.set(rec.id, rec);
@@ -364,7 +364,7 @@ export function OfflineGptWorkspace() {
     const uid = currentUser.id;
     db.init().then(async () => {
       const localImgs = await db.getImageHistory(uid);
-      const backendImgs = await fetchUserImagesFromBackend(uid);
+      const backendImgs = await fetchUserImagesFromBackend(uid, currentUser?.email);
       if (backendImgs) {
         const map = new Map<string, GeneratedImageRecord>();
         for (const r of localImgs) map.set(r.id, r);
@@ -372,6 +372,24 @@ export function OfflineGptWorkspace() {
           if (!map.has(r.id)) {
             map.set(r.id, r);
             await db.saveImageRecord(r);
+          }
+        }
+        const backendImgIds = new Set(backendImgs.map((r) => r.id));
+        const signInOwnerName = [currentUser?.firstName, currentUser?.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim();
+        for (const rec of localImgs) {
+          if (!backendImgIds.has(rec.id)) {
+            const taggedImg: GeneratedImageRecord = {
+              ...rec,
+              userId: rec.userId && rec.userId !== 'anonymous' ? rec.userId : uid,
+              userEmail: rec.userEmail || currentUser?.email,
+              userName: rec.userName || signInOwnerName || currentUser?.email,
+            };
+            map.set(taggedImg.id, taggedImg);
+            await db.saveImageRecord(taggedImg);
+            void syncImageRecordToBackend(taggedImg);
           }
         }
         setImageHistory(
@@ -518,7 +536,7 @@ export function OfflineGptWorkspace() {
         const uid = user.id;
         const [backendChats, backendImgs] = await Promise.all([
           fetchUserChatsFromBackend(uid, user.email),
-          fetchUserImagesFromBackend(uid),
+          fetchUserImagesFromBackend(uid, user.email),
         ]);
 
         if (backendChats) {
@@ -562,6 +580,21 @@ export function OfflineGptWorkspace() {
           for (const r of backendImgs) {
             imgMap.set(r.id, r);
             await db.saveImageRecord(r);
+          }
+          const backendImgIds = new Set(backendImgs.map((r) => r.id));
+          const liveOwnerName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim();
+          for (const r of localImgs) {
+            if (!backendImgIds.has(r.id)) {
+              const taggedImg: GeneratedImageRecord = {
+                ...r,
+                userId: r.userId && r.userId !== 'anonymous' ? r.userId : uid,
+                userEmail: r.userEmail || user.email,
+                userName: r.userName || liveOwnerName || user.email,
+              };
+              imgMap.set(taggedImg.id, taggedImg);
+              await db.saveImageRecord(taggedImg);
+              void syncImageRecordToBackend(taggedImg);
+            }
           }
           setImageHistory(
             Array.from(imgMap.values()).sort(

@@ -309,8 +309,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     });
     images.forEach((img) => {
-      if (img.prompt.toLowerCase().includes(q)) {
-        results.push({ label: img.prompt.slice(0, 50), sub: `Image · ${img.provider}`, section: 'images' });
+      const hay = `${img.prompt} ${img.style} ${img.userEmail || ''} ${img.userName || ''} ${img.provider}`.toLowerCase();
+      if (hay.includes(q)) {
+        results.push({
+          label: img.prompt.slice(0, 50),
+          sub: `${img.userEmail || img.userName || 'Image'} · ${img.provider}`,
+          section: 'images',
+        });
       }
     });
     return results.slice(0, 8);

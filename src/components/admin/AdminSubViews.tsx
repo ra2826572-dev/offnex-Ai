@@ -41,6 +41,7 @@ import {
   HardDrive,
   Mail,
   LayoutList,
+  LayoutGrid,
 } from 'lucide-react';
 import { db } from '../../services/db';
 
@@ -126,7 +127,16 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
   // Images state
   const [imgSearch, setImgSearch] = useState('');
   const [imgProviderFilter, setImgProviderFilter] = useState<'all' | 'gemini' | 'openai' | 'local' | 'pinterest'>('all');
-  const [previewImg, setPreviewImg] = useState<{ url: string; prompt: string; model: string } | null>(null);
+  const [selectedImgUserKey, setSelectedImgUserKey] = useState<string>('all');
+  const [imgViewMode, setImgViewMode] = useState<'grouped' | 'grid'>('grouped');
+  const [previewImg, setPreviewImg] = useState<{
+    url: string;
+    prompt: string;
+    model: string;
+    ownerName?: string;
+    ownerEmail?: string;
+    createdAt?: string;
+  } | null>(null);
 
   // Models / API config state
   const [testingTarget, setTestingTarget] = useState<string | null>(null);
@@ -955,24 +965,254 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
 
   // ==================== IMAGES ====================
   if (section === 'images') {
-    const filteredImgs = images.filter((rec) => {
-      const matchesProvider = imgProviderFilter === 'all' || rec.provider === imgProviderFilter;
-      const q = imgSearch.trim().toLowerCase();
-      const matchesQuery =
-        !q || rec.prompt.toLowerCase().includes(q) || rec.style.toLowerCase().includes(q);
-      return matchesProvider && matchesQuery;
+    const userById = new Map(users.map((u) => [u.id, u]));
+    const userByEmail = new Map(users.map((u) => [u.email.toLowerCase(), u]));
+
+    type EnrichedImageItem = {
+      rec: GeneratedImageRecord;
+      ownerKey: string;
+      ownerName: string;
+      ownerEmail: string;
+      ownerRole: UserRole;
+    };
+
+    const resolveImgOwner = (rec: GeneratedImageRecord): EnrichedImageItem => {
+      const matchedUser =
+        (rec.userId && rec.userId !== 'anonymous' ? userById.get(rec.userId) : undefined) ||
+        (rec.userEmail ? userByEmail.get(rec.userEmail.toLowerCase()) : undefined);
+      const fullName = matchedUser
+        ? [matchedUser.firstName, matchedUser.lastName].filter(Boolean).join(' ').trim() || matchedUser.email
+        : '';
+      const ownerEmail = (matchedUser?.email || rec.userEmail || '').trim();
+      const ownerName = fullName || rec.userName?.trim() || ownerEmail || 'Guest / Unassigned';
+      const ownerRole: UserRole = matchedUser?.role || 'user';
+      const ownerKey = matchedUser
+        ? `user:${matchedUser.id}`
+        : ownerEmail
+          ? `email:${ownerEmail.toLowerCase()}`
+          : rec.userId
+            ? `id:${rec.userId}`
+            : 'unassigned';
+      return {
+        rec,
+        ownerKey,
+        ownerName,
+        ownerEmail,
+        ownerRole,
+      };
+    };
+
+    const enrichedImages = images.map(resolveImgOwner);
+
+    type UserImageGroup = {
+      key: string;
+      name: string;
+      email: string;
+      role: UserRole;
+      items: EnrichedImageItem[];
+      totalFiles: number;
+      latestCreatedMs: number;
+    };
+
+    const groupMap = new Map<string, UserImageGroup>();
+    for (const u of users) {
+      const fullName = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email;
+      groupMap.set(`user:${u.id}`, {
+        key: `user:${u.id}`,
+        name: fullName,
+        email: u.email,
+        role: u.role,
+        items: [],
+        totalFiles: 0,
+        latestCreatedMs: 0,
+      });
+    }
+
+    for (const item of enrichedImages) {
+      let group = groupMap.get(item.ownerKey);
+      if (!group) {
+        group = {
+          key: item.ownerKey,
+          name: item.ownerName,
+          email: item.ownerEmail || 'No email synced',
+          role: item.ownerRole,
+          items: [],
+          totalFiles: 0,
+          latestCreatedMs: 0,
+        };
+        groupMap.set(item.ownerKey, group);
+      }
+      group.items.push(item);
+      group.totalFiles += Math.max(1, item.rec.images?.length || item.rec.count || 1);
+      const crtMs = new Date(item.rec.createdAt).getTime() || 0;
+      if (crtMs > group.latestCreatedMs) {
+        group.latestCreatedMs = crtMs;
+      }
+    }
+
+    const allImgGroups = Array.from(groupMap.values()).map((g) => ({
+      ...g,
+      items: [...g.items].sort(
+        (a, b) => new Date(b.rec.createdAt).getTime() - new Date(a.rec.createdAt).getTime()
+      ),
+    }));
+    allImgGroups.sort((a, b) => {
+      if (b.items.length > 0 && a.items.length === 0) return 1;
+      if (a.items.length > 0 && b.items.length === 0) return -1;
+      if (b.latestCreatedMs !== a.latestCreatedMs) return b.latestCreatedMs - a.latestCreatedMs;
+      return a.email.localeCompare(b.email);
     });
+
+    const q = imgSearch.trim().toLowerCase();
+    const matchesImgFilter = (item: EnrichedImageItem): boolean => {
+      const matchesProvider =
+        imgProviderFilter === 'all' || item.rec.provider === imgProviderFilter;
+      if (!matchesProvider) return false;
+      if (!q) return true;
+      return (
+        item.rec.prompt.toLowerCase().includes(q) ||
+        item.rec.style.toLowerCase().includes(q) ||
+        item.rec.modelUsed.toLowerCase().includes(q) ||
+        item.ownerName.toLowerCase().includes(q) ||
+        item.ownerEmail.toLowerCase().includes(q)
+      );
+    };
+
+    const filteredImgs = enrichedImages.filter((item) => {
+      const matchesUser = selectedImgUserKey === 'all' || item.ownerKey === selectedImgUserKey;
+      return matchesUser && matchesImgFilter(item);
+    });
+
+    const visibleImgGroups = allImgGroups
+      .filter((g) => selectedImgUserKey === 'all' || g.key === selectedImgUserKey)
+      .map((g) => {
+        const filteredItems = g.items.filter(matchesImgFilter);
+        const groupMatchesQuery =
+          !q ||
+          g.name.toLowerCase().includes(q) ||
+          g.email.toLowerCase().includes(q);
+        const hasFilters = Boolean(q) || imgProviderFilter !== 'all';
+        return {
+          ...g,
+          visibleItems:
+            hasFilters && !(q && groupMatchesQuery && imgProviderFilter === 'all')
+              ? filteredItems
+              : q && groupMatchesQuery && filteredItems.length === 0
+                ? g.items
+                : filteredItems,
+          matchesFilter:
+            (!q && imgProviderFilter === 'all') ||
+            (imgProviderFilter === 'all' && groupMatchesQuery) ||
+            filteredItems.length > 0,
+        };
+      })
+      .filter((g) => g.matchesFilter);
+
+    const renderImageCard = (item: EnrichedImageItem) => {
+      const { rec, ownerName, ownerEmail } = item;
+      const firstImg = rec.images[0]?.dataUrl;
+      return (
+        <div
+          key={rec.id}
+          className="rounded-2xl bg-[#0B0E1C] border border-white/10 overflow-hidden flex flex-col"
+        >
+          <div className="aspect-video bg-[#080B16] relative overflow-hidden group">
+            {firstImg ? (
+              <img
+                src={firstImg}
+                alt={rec.prompt}
+                referrerPolicy="no-referrer"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-slate-600 text-xs">
+                No preview
+              </div>
+            )}
+            <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/70 border border-white/10 text-[10px] font-mono uppercase text-slate-200">
+              {rec.modelUsed} · {rec.aspectRatio}
+            </div>
+            <div className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-[#7547FF]/80 text-[10px] font-mono uppercase text-white">
+              {rec.provider}
+            </div>
+          </div>
+          <div className="p-3.5 flex-1 flex flex-col justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-white line-clamp-2">{rec.prompt}</p>
+              <div className="flex items-center gap-1.5 text-[11px] text-[#A78BFA] font-mono truncate">
+                <Mail className="w-3 h-3 shrink-0" />
+                <span className="truncate">{ownerEmail || ownerName}</span>
+              </div>
+              <p className="text-[11px] text-slate-400 font-mono tabular-nums truncate">
+                {ownerName} · {rec.style} · {new Date(rec.createdAt).toLocaleString()}
+              </p>
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-white/5">
+              <button
+                type="button"
+                onClick={() =>
+                  firstImg &&
+                  setPreviewImg({
+                    url: firstImg,
+                    prompt: rec.prompt,
+                    model: rec.modelUsed,
+                    ownerName,
+                    ownerEmail,
+                    createdAt: rec.createdAt,
+                  })
+                }
+                className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 inline-flex items-center gap-1 cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5" /> Inspect
+              </button>
+              <button
+                type="button"
+                onClick={() => onDeleteImage(rec.id)}
+                className="text-xs font-semibold text-rose-400 hover:text-rose-300 inline-flex items-center gap-1 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
 
     return (
       <div className="space-y-5">
-        <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <ImageIcon className="w-5 h-5 text-emerald-400" />
-            Image Management
-          </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Review all AI-generated images across users and manage local storage ({images.length} records).
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <ImageIcon className="w-5 h-5 text-emerald-400" />
+              Image Management (Users & Emails)
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              All backend users paired with their email & generated images ({allImgGroups.length} accounts ·{' '}
+              {images.length} records).
+            </p>
+          </div>
+          <div className="inline-flex bg-[#101426] border border-white/10 rounded-xl p-1 gap-1 shrink-0 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setImgViewMode('grouped')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                imgViewMode === 'grouped' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              By User Email
+            </button>
+            <button
+              type="button"
+              onClick={() => setImgViewMode('grid')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                imgViewMode === 'grid' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              All Images Grid
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3">
@@ -982,7 +1222,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
               type="text"
               value={imgSearch}
               onChange={(e) => setImgSearch(e.target.value)}
-              placeholder="Filter generated images by prompt or style..."
+              placeholder="Search by user email, name, prompt, style, or model..."
               className="w-full bg-[#101426] border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-[#7547FF]"
             />
           </div>
@@ -1002,7 +1242,111 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
           </div>
         </div>
 
-        {filteredImgs.length === 0 ? (
+        {/* Backend User Emails Selector Strip */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSelectedImgUserKey('all')}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+              selectedImgUserKey === 'all'
+                ? 'bg-[#7547FF] border-[#7547FF] text-white'
+                : 'bg-[#101426] border-white/10 text-slate-300 hover:border-white/25'
+            }`}
+          >
+            <span>All Backend Users</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-black/25 font-mono text-[10px]">
+              {images.length}
+            </span>
+          </button>
+
+          {allImgGroups.map((g) => {
+            const active = selectedImgUserKey === g.key;
+            return (
+              <button
+                key={g.key}
+                type="button"
+                onClick={() => setSelectedImgUserKey(active ? 'all' : g.key)}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs border transition cursor-pointer max-w-full ${
+                  active
+                    ? 'bg-[#7547FF]/25 border-[#7547FF] text-white'
+                    : 'bg-[#101426] border-white/10 text-slate-300 hover:border-white/25'
+                }`}
+              >
+                <span className="w-5 h-5 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                  {getInitials(g.name || g.email, 'U')}
+                </span>
+                <span className="truncate font-mono text-[11px]">{g.email}</span>
+                <span className="px-1.5 py-0.5 rounded-md bg-white/10 font-mono text-[10px] tabular-nums shrink-0">
+                  {g.items.length}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {imgViewMode === 'grouped' ? (
+          <div className="space-y-4">
+            {visibleImgGroups.length === 0 ? (
+              <div className="rounded-2xl bg-[#101426] border border-white/10 p-12 text-center">
+                <ImageIcon className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+                <p className="text-sm font-medium text-slate-300">No matching users or images found</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Try clearing your search or switching provider filters.
+                </p>
+              </div>
+            ) : (
+              visibleImgGroups.map((group) => (
+                <div
+                  key={group.key}
+                  className="rounded-2xl bg-[#101426] border border-white/10 overflow-hidden"
+                >
+                  <div className="px-4 py-3.5 bg-[#0B0E1C] border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-bold text-sm flex items-center justify-center shrink-0">
+                        {getInitials(group.name || group.email, 'U')}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-white text-sm truncate">
+                            {group.name}
+                          </span>
+                          <span
+                            className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md font-semibold ${
+                              group.role === 'business_owner'
+                                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                : 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30'
+                            }`}
+                          >
+                            {group.role === 'business_owner' ? 'Admin / Owner' : 'User'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#A78BFA] font-mono flex items-center gap-1.5 truncate mt-0.5">
+                          <Mail className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">{group.email}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-xs font-mono text-slate-300 tabular-nums shrink-0">
+                      <span className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10">
+                        {group.visibleItems.length} images
+                      </span>
+                    </div>
+                  </div>
+
+                  {group.visibleItems.length === 0 ? (
+                    <div className="px-4 py-5 text-xs text-slate-500">
+                      No generated images recorded on the backend yet for {group.email}.
+                    </div>
+                  ) : (
+                    <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {group.visibleItems.map(renderImageCard)}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        ) : filteredImgs.length === 0 ? (
           <div className="rounded-2xl bg-[#101426] border border-white/10 p-12 text-center">
             <ImageIcon className="w-10 h-10 text-slate-600 mx-auto mb-3" />
             <p className="text-sm font-medium text-slate-300">No generated images found</p>
@@ -1012,78 +1356,48 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredImgs.map((rec) => {
-              const firstImg = rec.images[0]?.dataUrl;
-              const ownerText = rec.userEmail || rec.userName || rec.userId;
-              return (
-                <div
-                  key={rec.id}
-                  className="rounded-2xl bg-[#101426] border border-white/10 overflow-hidden flex flex-col"
-                >
-                  <div className="aspect-video bg-[#080B16] relative overflow-hidden group">
-                    {firstImg ? (
-                      <img
-                        src={firstImg}
-                        alt={rec.prompt}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-slate-600 text-xs">
-                        No preview
-                      </div>
-                    )}
-                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-black/65 border border-white/10 text-[10px] font-mono uppercase text-slate-200">
-                      {rec.modelUsed} · {rec.aspectRatio}
-                    </div>
-                  </div>
-                  <div className="p-3.5 flex-1 flex flex-col justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-medium text-white line-clamp-2">{rec.prompt}</p>
-                      <p className="text-[11px] text-slate-400 mt-1 font-mono tabular-nums truncate">
-                        {ownerText} · {rec.style} · {new Date(rec.createdAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-between pt-2 border-t border-white/5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          firstImg &&
-                          setPreviewImg({ url: firstImg, prompt: rec.prompt, model: rec.modelUsed })
-                        }
-                        className="text-xs font-semibold text-indigo-300 hover:text-indigo-200 inline-flex items-center gap-1 cursor-pointer"
-                      >
-                        <Eye className="w-3.5 h-3.5" /> Inspect
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteImage(rec.id)}
-                        className="text-xs font-semibold text-rose-400 hover:text-rose-300 inline-flex items-center gap-1 cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Delete
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {filteredImgs.map(renderImageCard)}
           </div>
         )}
 
         {previewImg && (
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="max-w-2xl w-full rounded-2xl bg-[#101426] border border-white/15 overflow-hidden">
-              <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
-                <span className="text-xs font-mono text-slate-300">{previewImg.model}</span>
+              <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-xs">
+                    {previewImg.ownerName && (
+                      <span className="text-white font-semibold">{previewImg.ownerName}</span>
+                    )}
+                    {previewImg.ownerEmail && (
+                      <span className="text-[#A78BFA] font-mono inline-flex items-center gap-1">
+                        <Mail className="w-3 h-3" />
+                        {previewImg.ownerEmail}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] font-mono text-slate-400 mt-0.5">
+                    {previewImg.model}
+                    {previewImg.createdAt
+                      ? ` · ${new Date(previewImg.createdAt).toLocaleString()}`
+                      : ''}
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={() => setPreviewImg(null)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer"
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer shrink-0"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
               <div className="bg-black flex items-center justify-center max-h-[65vh] overflow-hidden">
-                <img src={previewImg.url} alt={previewImg.prompt} className="max-h-[65vh] object-contain" />
+                <img
+                  src={previewImg.url}
+                  alt={previewImg.prompt}
+                  referrerPolicy="no-referrer"
+                  className="max-h-[65vh] object-contain"
+                />
               </div>
               <div className="p-4 text-xs text-slate-300">{previewImg.prompt}</div>
             </div>

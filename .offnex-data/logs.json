@@ -1,5 +1,32 @@
 [
   {
+    "id": "srv-1795429027753-a16f",
+    "timestamp": "2026-11-23T10:17:07.754Z",
+    "level": "warn",
+    "category": "image",
+    "message": "Removed generated image record imgrec-verify-1795429026973",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795428866085-3d15",
+    "timestamp": "2026-11-23T10:14:26.085Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"Pakistan Economy Report\"",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795428866073-370e",
+    "timestamp": "2026-11-23T10:14:26.074Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"hello\"",
+    "actor": "mushahidrafiqe744@gmail.com",
+    "source": "server"
+  },
+  {
     "id": "srv-1795428669889-39de",
     "timestamp": "2026-11-23T10:11:09.889Z",
     "level": "warn",
