@@ -465,27 +465,52 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           {/* Offline Launch Cache Readiness */}
-          <div className="p-3.5 sm:p-4 rounded-xl bg-[#14182D] border border-[#222846] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <WifiOff className="w-5 h-5 text-emerald-400 shrink-0" />
-              <div className="min-w-0">
-                <div className="text-xs font-bold text-white">Offline Launch Storage</div>
-                <div className="text-[11px] text-gray-400">
-                  {offlineCacheStatus?.ready
-                    ? `Offline Ready (${offlineCacheStatus.cachedCount} app files saved on device — works without internet)`
-                    : 'Save app files on this device so Offnex Ai opens even when Wi-Fi is off'}
+          <div className="p-3.5 sm:p-4 rounded-xl bg-[#14182D] border border-[#222846] space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <WifiOff
+                  className={`w-5 h-5 shrink-0 ${
+                    offlineCacheStatus?.ready && offlineCacheStatus?.controlled && !isEmbedded
+                      ? 'text-emerald-400'
+                      : 'text-amber-400'
+                  }`}
+                />
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-white">Offline Launch Storage</div>
+                  <div className="text-[11px] text-gray-400">
+                    {isEmbedded
+                      ? 'Aap abhi AI Studio preview frame ke andar hain. Offline chalane ke liye neeche "Open Standalone App" par click kar ke ek bar Chrome mein kholein ya Install karein.'
+                      : offlineCacheStatus?.ready && offlineCacheStatus?.controlled
+                      ? `Offline Verified (${offlineCacheStatus.cachedCount} files saved — Wi-Fi band karne par bhi chalegi)`
+                      : offlineCacheStatus?.ready
+                      ? `${offlineCacheStatus.cachedCount} files saved — activate karne ke liye page ek bar reload karein`
+                      : 'Save app files on this device so Offnex Ai opens even when Wi-Fi is off'}
+                  </div>
                 </div>
               </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {isEmbedded && (
+                  <a
+                    href={directInstallUrl.replace('?install=1', '')}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full sm:w-auto min-h-[38px] flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs font-semibold text-white transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-white" />
+                    <span>Open Standalone App</span>
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={handleSyncOfflineCache}
+                  disabled={isSyncingOffline}
+                  className="w-full sm:w-auto min-h-[38px] flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#1A1F38] hover:bg-[#252C52] border border-[#272D50] text-xs font-semibold text-white transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isSyncingOffline ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingOffline ? 'Saving...' : 'Sync Offline Files'}</span>
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={handleSyncOfflineCache}
-              disabled={isSyncingOffline}
-              className="w-full sm:w-auto min-h-[38px] flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#1A1F38] hover:bg-[#252C52] border border-[#272D50] text-xs font-semibold text-white transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-emerald-400 ${isSyncingOffline ? 'animate-spin' : ''}`} />
-              <span>{isSyncingOffline ? 'Saving...' : 'Sync Offline Files'}</span>
-            </button>
           </div>
 
           {/* Support Ticket Submission & History */}

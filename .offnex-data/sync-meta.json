@@ -1,7 +1,9 @@
 {
-  "revision": 5,
-  "updatedAt": "2026-11-23T09:57:26.011Z",
+  "revision": 8,
+  "updatedAt": "2026-11-23T10:11:09.888Z",
   "deletedUserIds": [],
-  "deletedConversationIds": [],
+  "deletedConversationIds": [
+    "conv-verify-1795428669351"
+  ],
   "deletedImageIds": []
 }

@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
   const conversationId = searchParams.get('conversationId') || undefined;
   const meta = getRequestUserMeta(req);
   const userId = all ? undefined : searchParams.get('userId') || meta.userId;
+  const userEmail = all ? undefined : searchParams.get('userEmail') || meta.userEmail;
 
   if (conversationId) {
     return NextResponse.json({
@@ -26,8 +27,12 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    conversations: listBackendConversations(userId),
-    messages: listBackendMessages(userId ? { userId } : undefined),
+    conversations: listBackendConversations(
+      userId || userEmail ? { userId, userEmail } : undefined
+    ),
+    messages: listBackendMessages(
+      userId || userEmail ? { userId, userEmail } : undefined
+    ),
   });
 }
 
@@ -63,7 +68,7 @@ export async function POST(req: NextRequest) {
 
   const enrichedMsgs = incomingMessages.map((m) => ({
     ...m,
-    userId: m.userId || meta.userId,
+    userId: m.userId || savedConv?.userId || meta.userId,
   }));
 
   const savedMessages =

@@ -242,13 +242,22 @@ export function OfflineGptWorkspace() {
 
       const allLocalConvs = await db.getConversations();
       const uid = syncedUser?.id;
+      const uEmail = syncedUser?.email;
+      const uOwnerName = syncedUser
+        ? [syncedUser.firstName, syncedUser.lastName].filter(Boolean).join(' ').trim() || syncedUser.email
+        : undefined;
       const scopedLocalConvs = uid
-        ? allLocalConvs.filter((c) => !c.userId || c.userId === uid)
+        ? allLocalConvs.filter(
+            (c) =>
+              !c.userId ||
+              c.userId === uid ||
+              (uEmail && c.userEmail?.toLowerCase() === uEmail.toLowerCase())
+          )
         : allLocalConvs;
 
       let mergedConvs = scopedLocalConvs;
-      if (uid) {
-        const backendChats = await fetchUserChatsFromBackend(uid);
+      if (uid || uEmail) {
+        const backendChats = await fetchUserChatsFromBackend(uid || '', uEmail);
         if (backendChats) {
           const convMap = new Map<string, Conversation>();
           for (const c of scopedLocalConvs) convMap.set(c.id, c);
@@ -262,7 +271,7 @@ export function OfflineGptWorkspace() {
           for (const m of backendChats.messages) {
             await db.saveMessage(m);
           }
-          // Push any local-only chats to backend
+          // Push any local-only chats to backend with full user email & name attribution
           const backendIds = new Set(backendChats.conversations.map((c) => c.id));
           for (const localConv of scopedLocalConvs) {
             if (!backendIds.has(localConv.id)) {
@@ -270,8 +279,10 @@ export function OfflineGptWorkspace() {
               const taggedConv: Conversation = {
                 ...localConv,
                 userId: localConv.userId || uid,
-                userEmail: localConv.userEmail || syncedUser?.email,
+                userEmail: localConv.userEmail || uEmail,
+                userName: localConv.userName || uOwnerName,
               };
+              convMap.set(taggedConv.id, taggedConv);
               await db.saveConversation(taggedConv);
               void syncConversationToBackend(
                 taggedConv,
@@ -372,10 +383,17 @@ export function OfflineGptWorkspace() {
         setImageHistory(localImgs);
       }
 
+      const uEmail = currentUser?.email;
+      const uOwnerName = currentUser
+        ? [currentUser.firstName, currentUser.lastName].filter(Boolean).join(' ').trim() || currentUser.email
+        : undefined;
       const localConvs = (await db.getConversations()).filter(
-        (c) => !c.userId || c.userId === uid
+        (c) =>
+          !c.userId ||
+          c.userId === uid ||
+          (uEmail && c.userEmail?.toLowerCase() === uEmail.toLowerCase())
       );
-      const backendChats = await fetchUserChatsFromBackend(uid);
+      const backendChats = await fetchUserChatsFromBackend(uid, uEmail);
       if (backendChats) {
         const cMap = new Map<string, Conversation>();
         for (const c of localConvs) cMap.set(c.id, c);
@@ -385,6 +403,24 @@ export function OfflineGptWorkspace() {
         }
         for (const m of backendChats.messages) {
           await db.saveMessage(m);
+        }
+        const backendIds = new Set(backendChats.conversations.map((c) => c.id));
+        for (const localConv of localConvs) {
+          if (!backendIds.has(localConv.id)) {
+            const localMsgs = await db.getMessages(localConv.id);
+            const taggedConv: Conversation = {
+              ...localConv,
+              userId: localConv.userId || uid,
+              userEmail: localConv.userEmail || uEmail,
+              userName: localConv.userName || uOwnerName,
+            };
+            cMap.set(taggedConv.id, taggedConv);
+            await db.saveConversation(taggedConv);
+            void syncConversationToBackend(
+              taggedConv,
+              localMsgs.map((m) => ({ ...m, userId: m.userId || uid }))
+            );
+          }
         }
         const merged = Array.from(cMap.values()).sort(
           (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
@@ -481,14 +517,18 @@ export function OfflineGptWorkspace() {
       if (user?.id) {
         const uid = user.id;
         const [backendChats, backendImgs] = await Promise.all([
-          fetchUserChatsFromBackend(uid),
+          fetchUserChatsFromBackend(uid, user.email),
           fetchUserImagesFromBackend(uid),
         ]);
 
         if (backendChats) {
           const deletedConvSet = new Set(live.deletedConversationIds || []);
           const localConvs = (await db.getConversations()).filter(
-            (c) => (!c.userId || c.userId === uid) && !deletedConvSet.has(c.id)
+            (c) =>
+              (!c.userId ||
+                c.userId === uid ||
+                (user.email && c.userEmail?.toLowerCase() === user.email.toLowerCase())) &&
+              !deletedConvSet.has(c.id)
           );
           const convMap = new Map<string, Conversation>();
           for (const c of localConvs) convMap.set(c.id, c);
@@ -929,11 +969,18 @@ export function OfflineGptWorkspace() {
       const limitMsg = `Daily image limit reached (${currentDailyQuota.limit}/${currentDailyQuota.limit} images used today). Free chat is unlimited — you can create more images tomorrow.`;
       setLastImageError(limitMsg);
       if (addToChat) {
+        const quotaOwnerName = currentUser
+          ? [currentUser.firstName, currentUser.lastName].filter(Boolean).join(' ').trim() || currentUser.email
+          : undefined;
         let convId = activeConversationId;
+        let createdQuotaConv: Conversation | undefined;
         if (!convId) {
           convId = 'conv-' + Date.now();
           const conv: Conversation = {
             id: convId,
+            userId: currentUser?.id,
+            userEmail: currentUser?.email,
+            userName: quotaOwnerName,
             title: (displayUserMessage || payload.prompt).slice(0, 28),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -941,6 +988,7 @@ export function OfflineGptWorkspace() {
             language,
             messagesCount: 2,
           };
+          createdQuotaConv = conv;
           await db.saveConversation(conv);
           setConversations((prev) => [conv, ...prev]);
           setActiveConversationId(convId);
@@ -949,6 +997,7 @@ export function OfflineGptWorkspace() {
         const uMsg: Message = {
           id: 'msg-' + Date.now(),
           conversationId: convId,
+          userId: currentUser?.id,
           role: 'user',
           content: displayUserMessage || `Generate image: ${payload.prompt}`,
           timestamp: t,
@@ -956,6 +1005,7 @@ export function OfflineGptWorkspace() {
         const aMsg: Message = {
           id: 'msg-' + (Date.now() + 1),
           conversationId: convId,
+          userId: currentUser?.id,
           role: 'assistant',
           content: `Aaj ki **${currentDailyQuota.limit} images** ki daily limit poori ho chuki hai. Free text chat unlimited hai — kal dubara ${currentDailyQuota.limit} images bana saktay hain.`,
           timestamp: t,
@@ -964,6 +1014,7 @@ export function OfflineGptWorkspace() {
         setMessages((prev) => [...prev, uMsg, aMsg]);
         await db.saveMessage(uMsg);
         await db.saveMessage(aMsg);
+        void syncConversationToBackend(createdQuotaConv, [uMsg, aMsg]);
       }
       return;
     }

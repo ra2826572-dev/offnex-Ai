@@ -299,8 +299,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
     });
     conversations.forEach((c) => {
-      if (c.title.toLowerCase().includes(q)) {
-        results.push({ label: c.title, sub: `Chat · ${c.modelName}`, section: 'chats' });
+      const hay = `${c.title} ${c.userEmail || ''} ${c.userName || ''} ${c.modelName}`.toLowerCase();
+      if (hay.includes(q)) {
+        results.push({
+          label: c.title,
+          sub: `${c.userEmail || c.userName || 'Chat'} · ${c.modelName}`,
+          section: 'chats',
+        });
       }
     });
     images.forEach((img) => {

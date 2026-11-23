@@ -59,7 +59,11 @@ export function OfflineBootstrap() {
           }
 
           window.dispatchEvent(new CustomEvent('offnex:app-updating', { detail: live }));
-          await warmOfflineAppCache([], true);
+          const refreshed = await warmOfflineAppCache([], true);
+
+          if (!navigator.onLine || !refreshed?.ready) {
+            return;
+          }
 
           if (window.__offnexBusyGenerating) {
             window.__offnexPendingReload = true;
@@ -68,7 +72,11 @@ export function OfflineBootstrap() {
 
           reloadingRef.current = true;
           setTimeout(() => {
-            window.location.reload();
+            if (navigator.onLine) {
+              window.location.reload();
+            } else {
+              reloadingRef.current = false;
+            }
           }, 500);
         }
       } finally {

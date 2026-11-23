@@ -44,11 +44,15 @@ export async function deleteConversationOnBackend(id: string): Promise<void> {
 }
 
 export async function fetchUserChatsFromBackend(
-  userId: string
+  userId: string,
+  userEmail?: string
 ): Promise<{ conversations: Conversation[]; messages: Message[] } | null> {
-  if (!isOnline() || !userId) return null;
+  if (!isOnline() || (!userId && !userEmail)) return null;
   try {
-    const res = await fetch(`/api/chats?userId=${encodeURIComponent(userId)}`, {
+    const qs = new URLSearchParams();
+    if (userId) qs.set('userId', userId);
+    if (userEmail) qs.set('userEmail', userEmail);
+    const res = await fetch(`/api/chats?${qs.toString()}`, {
       cache: 'no-store',
     });
     if (!res.ok) return null;

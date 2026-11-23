@@ -39,6 +39,8 @@ import {
   ShieldAlert,
   Database,
   HardDrive,
+  Mail,
+  LayoutList,
 } from 'lucide-react';
 import { db } from '../../services/db';
 
@@ -117,6 +119,8 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
 
   // Chats state
   const [chatSearch, setChatSearch] = useState('');
+  const [selectedChatUserKey, setSelectedChatUserKey] = useState<string>('all');
+  const [chatViewMode, setChatViewMode] = useState<'grouped' | 'table'>('grouped');
   const [inspectConvId, setInspectConvId] = useState<string | null>(null);
 
   // Images state
@@ -408,28 +412,172 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
 
   // ==================== CHATS ====================
   if (section === 'chats') {
-    const filteredConvs = conversations.filter((c) => {
-      const q = chatSearch.trim().toLowerCase();
-      return (
-        !q ||
-        c.title.toLowerCase().includes(q) ||
-        c.modelName.toLowerCase().includes(q) ||
-        c.language.toLowerCase().includes(q)
-      );
+    const userById = new Map(users.map((u) => [u.id, u]));
+    const userByEmail = new Map(users.map((u) => [u.email.toLowerCase(), u]));
+    const msgsByConvId = new Map<string, Message[]>();
+    for (const msg of messages) {
+      const bucket = msgsByConvId.get(msg.conversationId);
+      if (bucket) {
+        bucket.push(msg);
+      } else {
+        msgsByConvId.set(msg.conversationId, [msg]);
+      }
+    }
+
+    type EnrichedConvItem = {
+      conv: Conversation;
+      ownerKey: string;
+      ownerName: string;
+      ownerEmail: string;
+      ownerRole: UserRole;
+      convMessages: Message[];
+      actualCount: number;
+      lastPreview: string;
+    };
+
+    const resolveConvOwner = (conv: Conversation): EnrichedConvItem => {
+      const matchedUser =
+        (conv.userId ? userById.get(conv.userId) : undefined) ||
+        (conv.userEmail ? userByEmail.get(conv.userEmail.toLowerCase()) : undefined);
+      const fullName = matchedUser
+        ? [matchedUser.firstName, matchedUser.lastName].filter(Boolean).join(' ').trim() || matchedUser.email
+        : '';
+      const ownerEmail = (matchedUser?.email || conv.userEmail || '').trim();
+      const ownerName = fullName || conv.userName?.trim() || ownerEmail || 'Guest / Unassigned';
+      const ownerRole: UserRole = matchedUser?.role || 'user';
+      const ownerKey = matchedUser
+        ? `user:${matchedUser.id}`
+        : ownerEmail
+          ? `email:${ownerEmail.toLowerCase()}`
+          : conv.userId
+            ? `id:${conv.userId}`
+            : 'unassigned';
+      const convMessages = msgsByConvId.get(conv.id) || [];
+      const actualCount = convMessages.length || conv.messagesCount || 0;
+      const lastMsg = convMessages[convMessages.length - 1];
+      const lastPreview = lastMsg?.content
+        ? lastMsg.content.replace(/\s+/g, ' ').trim().slice(0, 110)
+        : '';
+      return {
+        conv,
+        ownerKey,
+        ownerName,
+        ownerEmail,
+        ownerRole,
+        convMessages,
+        actualCount,
+        lastPreview,
+      };
+    };
+
+    const enrichedConvs = conversations.map(resolveConvOwner);
+
+    type UserChatGroup = {
+      key: string;
+      name: string;
+      email: string;
+      role: UserRole;
+      items: EnrichedConvItem[];
+      totalMessages: number;
+      latestUpdatedMs: number;
+    };
+
+    const groupMap = new Map<string, UserChatGroup>();
+    for (const u of users) {
+      const fullName = [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email;
+      groupMap.set(`user:${u.id}`, {
+        key: `user:${u.id}`,
+        name: fullName,
+        email: u.email,
+        role: u.role,
+        items: [],
+        totalMessages: 0,
+        latestUpdatedMs: 0,
+      });
+    }
+
+    for (const item of enrichedConvs) {
+      let group = groupMap.get(item.ownerKey);
+      if (!group) {
+        group = {
+          key: item.ownerKey,
+          name: item.ownerName,
+          email: item.ownerEmail || 'No email synced',
+          role: item.ownerRole,
+          items: [],
+          totalMessages: 0,
+          latestUpdatedMs: 0,
+        };
+        groupMap.set(item.ownerKey, group);
+      }
+      group.items.push(item);
+      group.totalMessages += item.actualCount;
+      const updMs = new Date(item.conv.updatedAt).getTime() || 0;
+      if (updMs > group.latestUpdatedMs) {
+        group.latestUpdatedMs = updMs;
+      }
+    }
+
+    const allGroups = Array.from(groupMap.values()).map((g) => ({
+      ...g,
+      items: [...g.items].sort(
+        (a, b) => new Date(b.conv.updatedAt).getTime() - new Date(a.conv.updatedAt).getTime()
+      ),
+    }));
+    allGroups.sort((a, b) => {
+      if (b.items.length > 0 && a.items.length === 0) return 1;
+      if (a.items.length > 0 && b.items.length === 0) return -1;
+      if (b.latestUpdatedMs !== a.latestUpdatedMs) return b.latestUpdatedMs - a.latestUpdatedMs;
+      return a.email.localeCompare(b.email);
     });
 
-    const inspectedMessages = inspectConvId
-      ? messages.filter((m) => m.conversationId === inspectConvId)
-      : [];
-    const inspectedConv = conversations.find((c) => c.id === inspectConvId);
+    const q = chatSearch.trim().toLowerCase();
+    const matchesConvSearch = (item: EnrichedConvItem): boolean => {
+      if (!q) return true;
+      return (
+        item.conv.title.toLowerCase().includes(q) ||
+        item.conv.modelName.toLowerCase().includes(q) ||
+        item.conv.language.toLowerCase().includes(q) ||
+        item.ownerName.toLowerCase().includes(q) ||
+        item.ownerEmail.toLowerCase().includes(q) ||
+        item.convMessages.some((m) => m.content.toLowerCase().includes(q))
+      );
+    };
 
-    const exportMarkdown = (conv: Conversation) => {
-      const convMsgs = messages.filter((m) => m.conversationId === conv.id);
+    const filteredConvs = enrichedConvs.filter((item) => {
+      const matchesUser = selectedChatUserKey === 'all' || item.ownerKey === selectedChatUserKey;
+      return matchesUser && matchesConvSearch(item);
+    });
+
+    const visibleGroups = allGroups
+      .filter((g) => selectedChatUserKey === 'all' || g.key === selectedChatUserKey)
+      .map((g) => {
+        const filteredItems = g.items.filter(matchesConvSearch);
+        const groupMatchesQuery =
+          !q ||
+          g.name.toLowerCase().includes(q) ||
+          g.email.toLowerCase().includes(q);
+        return {
+          ...g,
+          visibleItems: q && !groupMatchesQuery ? filteredItems : q ? (filteredItems.length > 0 ? filteredItems : g.items) : g.items,
+          matchesFilter: !q || groupMatchesQuery || filteredItems.length > 0,
+        };
+      })
+      .filter((g) => g.matchesFilter);
+
+    const inspectedItem = inspectConvId
+      ? enrichedConvs.find((item) => item.conv.id === inspectConvId)
+      : undefined;
+    const inspectedMessages = inspectedItem ? inspectedItem.convMessages : [];
+
+    const exportMarkdown = (item: EnrichedConvItem) => {
+      const { conv, ownerName, ownerEmail, convMessages } = item;
       const md = [
         `# ${conv.title}`,
+        `User: ${ownerName}${ownerEmail ? ` (${ownerEmail})` : ''}`,
         `Model: ${conv.modelName} | Language: ${conv.language} | Updated: ${conv.updatedAt}`,
         '',
-        ...convMsgs.map((m) => `### ${m.role.toUpperCase()} (${m.timestamp})\n${m.content}`),
+        ...convMessages.map((m) => `### ${m.role.toUpperCase()} (${m.timestamp})\n${m.content}`),
       ].join('\n\n');
       const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
       const url = URL.createObjectURL(blob);
@@ -446,65 +594,251 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
           <div>
             <h2 className="text-xl font-bold text-white flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-[#A78BFA]" />
-              Chat Management
+              Chat Management (Users & Emails)
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Inspect stored conversations, export transcripts, or remove threads ({conversations.length} conversations ·{' '}
-              {messages.length} messages).
+              All backend users paired with their email & saved chats ({allGroups.length} accounts ·{' '}
+              {conversations.length} conversations · {messages.length} messages).
             </p>
+          </div>
+          <div className="inline-flex bg-[#101426] border border-white/10 rounded-xl p-1 gap-1 shrink-0 self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setChatViewMode('grouped')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                chatViewMode === 'grouped' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              By User Email
+            </button>
+            <button
+              type="button"
+              onClick={() => setChatViewMode('table')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                chatViewMode === 'table' ? 'bg-[#7547FF] text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <LayoutList className="w-3.5 h-3.5" />
+              All Chats Table
+            </button>
           </div>
         </div>
 
+        {/* Search */}
         <div className="relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={chatSearch}
             onChange={(e) => setChatSearch(e.target.value)}
-            placeholder="Search conversations by title, model, or language..."
+            placeholder="Search by user email, name, chat title, message text, or model..."
             className="w-full bg-[#101426] border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-[#7547FF]"
           />
         </div>
 
-        <div className="rounded-2xl bg-[#101426] border border-white/10 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[640px]">
-              <thead>
-                <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-slate-400 bg-[#0B0E1C]">
-                  <th className="py-3 px-4 font-semibold">Conversation Title</th>
-                  <th className="py-3 px-4 font-semibold">Owner</th>
-                  <th className="py-3 px-4 font-semibold">Model</th>
-                  <th className="py-3 px-4 font-semibold">Messages</th>
-                  <th className="py-3 px-4 font-semibold">Updated</th>
-                  <th className="py-3 px-4 font-semibold text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5 text-sm">
-                {filteredConvs.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-10 text-center text-slate-400">
-                      No conversations match your search.
-                    </td>
+        {/* Backend User Emails Selector Strip */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSelectedChatUserKey('all')}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+              selectedChatUserKey === 'all'
+                ? 'bg-[#7547FF] border-[#7547FF] text-white'
+                : 'bg-[#101426] border-white/10 text-slate-300 hover:border-white/25'
+            }`}
+          >
+            <span>All Backend Users</span>
+            <span className="px-1.5 py-0.5 rounded-md bg-black/25 font-mono text-[10px]">
+              {conversations.length}
+            </span>
+          </button>
+
+          {allGroups.map((g) => {
+            const active = selectedChatUserKey === g.key;
+            return (
+              <button
+                key={g.key}
+                type="button"
+                onClick={() => setSelectedChatUserKey(active ? 'all' : g.key)}
+                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs border transition cursor-pointer max-w-full ${
+                  active
+                    ? 'bg-[#7547FF]/25 border-[#7547FF] text-white'
+                    : 'bg-[#101426] border-white/10 text-slate-300 hover:border-white/25'
+                }`}
+              >
+                <span className="w-5 h-5 rounded-full bg-gradient-to-br from-[#7547FF] to-[#3B82F6] text-white text-[10px] font-bold flex items-center justify-center shrink-0">
+                  {getInitials(g.name || g.email, 'U')}
+                </span>
+                <span className="truncate font-mono text-[11px]">{g.email}</span>
+                <span className="px-1.5 py-0.5 rounded-md bg-white/10 font-mono text-[10px] tabular-nums shrink-0">
+                  {g.items.length}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {chatViewMode === 'grouped' ? (
+          <div className="space-y-4">
+            {visibleGroups.length === 0 ? (
+              <div className="rounded-2xl bg-[#101426] border border-white/10 py-10 text-center text-slate-400 text-sm">
+                No backend users or conversations match your search.
+              </div>
+            ) : (
+              visibleGroups.map((group) => (
+                <div
+                  key={group.key}
+                  className="rounded-2xl bg-[#101426] border border-white/10 overflow-hidden"
+                >
+                  {/* User Header Bar */}
+                  <div className="px-4 py-3.5 bg-[#0B0E1C] border-b border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#7547FF] to-[#3B82F6] text-white font-bold text-sm flex items-center justify-center shrink-0">
+                        {getInitials(group.name || group.email, 'U')}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-white text-sm truncate">
+                            {group.name}
+                          </span>
+                          <span
+                            className={`text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-md font-semibold ${
+                              group.role === 'business_owner'
+                                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                : 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30'
+                            }`}
+                          >
+                            {group.role === 'business_owner' ? 'Admin / Owner' : 'User'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#A78BFA] font-mono flex items-center gap-1.5 truncate mt-0.5">
+                          <Mail className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">{group.email}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-xs font-mono text-slate-300 tabular-nums shrink-0 flex items-center gap-3">
+                      <span className="px-2.5 py-1 rounded-lg bg-white/5 border border-white/10">
+                        {group.visibleItems.length} chats · {group.totalMessages} msgs
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* User's Conversations */}
+                  {group.visibleItems.length === 0 ? (
+                    <div className="px-4 py-5 text-xs text-slate-500 flex items-center justify-between">
+                      <span>No chats recorded on the backend yet for {group.email}.</span>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-white/5">
+                      {group.visibleItems.map((item) => (
+                        <div
+                          key={item.conv.id}
+                          className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-white/[0.02] transition-colors"
+                        >
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-medium text-white text-sm">
+                                {item.conv.title}
+                              </span>
+                              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-white/5 text-slate-300 border border-white/10">
+                                {item.conv.modelName}
+                              </span>
+                              <span className="text-[11px] font-mono text-slate-400">
+                                {item.actualCount} msgs
+                              </span>
+                            </div>
+                            {item.lastPreview && (
+                              <p className="text-xs text-slate-400 truncate">
+                                {item.lastPreview}
+                              </p>
+                            )}
+                            <p className="text-[11px] text-slate-500 font-mono">
+                              Updated: {new Date(item.conv.updatedAt).toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0 self-end sm:self-center">
+                            <button
+                              type="button"
+                              onClick={() => setInspectConvId(item.conv.id)}
+                              title="Inspect messages"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>View</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => exportMarkdown(item)}
+                              title="Export Markdown"
+                              className="inline-flex items-center justify-center p-2 rounded-lg text-emerald-300 hover:bg-emerald-500/15 cursor-pointer"
+                            >
+                              <Download className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onDeleteConversation(item.conv.id)}
+                              title="Delete Conversation"
+                              className="inline-flex items-center justify-center p-2 rounded-lg text-rose-400 hover:bg-rose-500/15 cursor-pointer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        ) : (
+          <div className="rounded-2xl bg-[#101426] border border-white/10 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[680px]">
+                <thead>
+                  <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider text-slate-400 bg-[#0B0E1C]">
+                    <th className="py-3 px-4 font-semibold">Conversation Title</th>
+                    <th className="py-3 px-4 font-semibold">Owner & Email</th>
+                    <th className="py-3 px-4 font-semibold">Model</th>
+                    <th className="py-3 px-4 font-semibold">Messages</th>
+                    <th className="py-3 px-4 font-semibold">Updated</th>
+                    <th className="py-3 px-4 font-semibold text-right">Actions</th>
                   </tr>
-                ) : (
-                  filteredConvs.map((conv) => {
-                    const actualCount = messages.filter((m) => m.conversationId === conv.id).length || conv.messagesCount;
-                    const ownerLabel = conv.userName || conv.userEmail || conv.userId || 'User';
-                    return (
-                      <tr key={conv.id} className="hover:bg-white/[0.02]">
-                        <td className="py-3 px-4 font-medium text-white">{conv.title}</td>
-                        <td className="py-3 px-4 text-xs text-slate-300 truncate max-w-[180px]">
-                          {ownerLabel}
+                </thead>
+                <tbody className="divide-y divide-white/5 text-sm">
+                  {filteredConvs.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-10 text-center text-slate-400">
+                        No conversations match your search.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredConvs.map((item) => (
+                      <tr key={item.conv.id} className="hover:bg-white/[0.02]">
+                        <td className="py-3 px-4 font-medium text-white">{item.conv.title}</td>
+                        <td className="py-3 px-4">
+                          <div className="min-w-0 max-w-[240px]">
+                            <p className="text-xs font-semibold text-slate-200 truncate">
+                              {item.ownerName}
+                            </p>
+                            <p className="text-[11px] text-[#A78BFA] font-mono truncate">
+                              {item.ownerEmail || 'No email linked'}
+                            </p>
+                          </div>
                         </td>
-                        <td className="py-3 px-4 text-xs text-slate-300 font-mono">{conv.modelName}</td>
-                        <td className="py-3 px-4 text-xs text-slate-300 font-mono tabular-nums">{actualCount}</td>
+                        <td className="py-3 px-4 text-xs text-slate-300 font-mono">{item.conv.modelName}</td>
+                        <td className="py-3 px-4 text-xs text-slate-300 font-mono tabular-nums">
+                          {item.actualCount}
+                        </td>
                         <td className="py-3 px-4 text-xs text-slate-400 font-mono tabular-nums">
-                          {new Date(conv.updatedAt).toLocaleString()}
+                          {new Date(item.conv.updatedAt).toLocaleString()}
                         </td>
                         <td className="py-3 px-4 text-right space-x-1">
                           <button
                             type="button"
-                            onClick={() => setInspectConvId(conv.id)}
+                            onClick={() => setInspectConvId(item.conv.id)}
                             title="Inspect messages"
                             className="inline-flex items-center justify-center p-2 rounded-lg text-indigo-300 hover:bg-indigo-500/15 cursor-pointer"
                           >
@@ -512,7 +846,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => exportMarkdown(conv)}
+                            onClick={() => exportMarkdown(item)}
                             title="Export Markdown"
                             className="inline-flex items-center justify-center p-2 rounded-lg text-emerald-300 hover:bg-emerald-500/15 cursor-pointer"
                           >
@@ -520,7 +854,7 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={() => onDeleteConversation(conv.id)}
+                            onClick={() => onDeleteConversation(item.conv.id)}
                             title="Delete Conversation"
                             className="inline-flex items-center justify-center p-2 rounded-lg text-rose-400 hover:bg-rose-500/15 cursor-pointer"
                           >
@@ -528,30 +862,49 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
                           </button>
                         </td>
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Thread Inspector Modal */}
-        {inspectConvId && inspectedConv && (
+        {inspectConvId && inspectedItem && (
           <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="w-full max-w-2xl max-h-[85vh] rounded-2xl bg-[#101426] border border-white/15 flex flex-col overflow-hidden">
-              <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between shrink-0">
+              <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between gap-3 shrink-0">
                 <div className="min-w-0">
-                  <h3 className="text-base font-bold text-white truncate">{inspectedConv.title}</h3>
-                  <p className="text-xs text-slate-400 font-mono">{inspectedConv.modelName}</p>
+                  <h3 className="text-base font-bold text-white truncate">{inspectedItem.conv.title}</h3>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400 mt-0.5">
+                    <span className="text-slate-200 font-medium">{inspectedItem.ownerName}</span>
+                    {inspectedItem.ownerEmail && (
+                      <span className="text-[#A78BFA] font-mono inline-flex items-center gap-1">
+                        <Mail className="w-3 h-3" />
+                        {inspectedItem.ownerEmail}
+                      </span>
+                    )}
+                    <span className="font-mono">{inspectedItem.conv.modelName}</span>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setInspectConvId(null)}
-                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => exportMarkdown(inspectedItem)}
+                    title="Export Markdown"
+                    className="p-1.5 rounded-lg text-emerald-300 hover:bg-emerald-500/15 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setInspectConvId(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
               <div className="flex-1 overflow-y-auto p-5 space-y-3">
                 {inspectedMessages.length === 0 ? (
@@ -567,7 +920,11 @@ export const AdminSubViews: React.FC<AdminSubViewsProps> = ({
                       }`}
                     >
                       <div className="flex items-center justify-between text-[11px] text-slate-400 mb-1.5 font-mono">
-                        <span className="uppercase font-semibold text-indigo-300">{msg.role}</span>
+                        <span className="uppercase font-semibold text-indigo-300">
+                          {msg.role === 'user' && inspectedItem.ownerEmail
+                            ? `USER · ${inspectedItem.ownerEmail}`
+                            : msg.role}
+                        </span>
                         <span>{msg.timestamp}</span>
                       </div>
                       {msg.content && (

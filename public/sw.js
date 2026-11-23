@@ -1,8 +1,7 @@
-const CACHE_NAME = 'offnex-ai-shell-v5';
+const CACHE_NAME = 'offnex-ai-shell-v6';
 const FALLBACK_URL = '/__offline_shell__';
-const PRECACHE_URLS = [
+const CORE_PRECACHE_URLS = [
   '/',
-  '/admin',
   '/manifest.webmanifest',
   '/icon.png',
   '/pwa-192x192.png',
@@ -11,6 +10,7 @@ const PRECACHE_URLS = [
   '/apple-touch-icon.png',
   '/assets/offnex_icon_square.png',
 ];
+const SECONDARY_URLS = ['/admin'];
 
 const IS_DEV_HOST =
   self.location.hostname === 'localhost' ||
@@ -34,9 +34,9 @@ function buildEmergencyFallbackResponse() {
 </head>
 <body>
   <div class="card">
-    <h1>Offnex Ai (Offline Shell)</h1>
-    <p>Internet connection is off. Tap below to reload your cached Offnex Ai workspace, or connect once briefly so all offline files finish syncing.</p>
-    <button onclick="window.location.href='/'">Open Cached App</button>
+    <h1>Offnex Ai (Offline Ready)</h1>
+    <p>Offline cache abhi sync ho raha hai. Ek bar internet on kar ke app khol lein taake sab files device par save ho jayein.</p>
+    <button onclick="window.location.href='/'">Open App</button>
   </div>
 </body>
 </html>`;
@@ -46,12 +46,29 @@ function buildEmergencyFallbackResponse() {
   });
 }
 
+// Chrome rejects a Service Worker `navigate` response if `response.redirected === true`.
+// Always reconstruct a clean non-redirected Response before storing in CacheStorage or returning.
+async function toCleanCacheableResponse(response) {
+  if (!response || !response.ok) return null;
+  if (!response.redirected) return response;
+  try {
+    const body = await response.clone().arrayBuffer();
+    const headers = new Headers(response.headers);
+    return new Response(body, {
+      status: response.status,
+      statusText: response.statusText || 'OK',
+      headers,
+    });
+  } catch {
+    return response;
+  }
+}
+
 function isValidCacheableAsset(requestUrl, response) {
   if (!response || !response.ok) return false;
   const contentType = (response.headers.get('content-type') || '').toLowerCase();
   const pathname = requestUrl.pathname.toLowerCase();
 
-  // Never store or serve an HTML page (404/502 error page) as JS, CSS, image, font, or manifest
   const expectsNonHtml =
     pathname.startsWith('/_next/static/') ||
     pathname.startsWith('/_next/image') ||
@@ -99,7 +116,20 @@ function extractAssetsFromHtml(htmlText) {
   return Array.from(discovered);
 }
 
-async function cacheUrlsSafely(cache, urls) {
+async function fetchWithTimeout(request, timeoutMs) {
+  if (typeof AbortController === 'undefined') {
+    return fetch(request);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(request, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function cacheUrlsSafely(cache, urls, forceRefreshPages = false) {
   const unique = Array.from(
     new Set(
       urls
@@ -123,54 +153,77 @@ async function cacheUrlsSafely(cache, urls) {
     )
   );
 
-  await Promise.allSettled(
-    unique.map(async (targetUrl) => {
-      try {
-        const parsed = new URL(targetUrl);
-        const existing = await cache.match(targetUrl);
-        // Always refresh page HTML routes during explicit precache, skip already-cached immutable assets
-        const isPageRoute = parsed.pathname === '/' || parsed.pathname === '/admin';
-        if (existing && !isPageRoute) return;
+  // Batch fetches cleanly (6 at a time) so Chrome socket pool stays responsive
+  const BATCH_SIZE = 6;
+  for (let i = 0; i < unique.length; i += BATCH_SIZE) {
+    const batch = unique.slice(i, i + BATCH_SIZE);
+    await Promise.allSettled(
+      batch.map(async (targetUrl) => {
+        try {
+          const parsed = new URL(targetUrl);
+          const isPageRoute = parsed.pathname === '/' || parsed.pathname === '/admin';
+          const existing = await cache.match(targetUrl);
+          if (existing && (!isPageRoute || !forceRefreshPages)) return;
 
-        const req = new Request(targetUrl, {
-          credentials: 'same-origin',
-          cache: isPageRoute ? 'reload' : 'default',
-        });
-        const res = await fetch(req);
-        if (!res || !res.ok) return;
+          const req = new Request(targetUrl, {
+            credentials: 'same-origin',
+            cache: isPageRoute ? 'reload' : 'default',
+          });
+          const res = await fetchWithTimeout(req, isPageRoute ? 6000 : 5000);
+          if (!res || !res.ok) return;
 
-        const ct = (res.headers.get('content-type') || '').toLowerCase();
-        if (isPageRoute) {
-          if (ct.includes('text/html')) {
-            await cache.put(targetUrl, res.clone());
-            if (parsed.pathname === '/') {
-              await cache.put('/', res.clone());
+          const ct = (res.headers.get('content-type') || '').toLowerCase();
+          if (isPageRoute) {
+            if (ct.includes('text/html')) {
+              const clean = await toCleanCacheableResponse(res);
+              if (clean) {
+                await cache.put(targetUrl, clean.clone());
+                await cache.put(parsed.pathname, clean.clone());
+              }
+            }
+            return;
+          }
+
+          if (isValidCacheableAsset(parsed, res)) {
+            const clean = await toCleanCacheableResponse(res);
+            if (clean) {
+              await cache.put(targetUrl, clean);
             }
           }
-          return;
+        } catch {
+          // Ignore single failure
         }
-
-        if (isValidCacheableAsset(parsed, res)) {
-          await cache.put(targetUrl, res);
-        }
-      } catch {
-        // Ignore single asset failure so remaining offline assets still cache cleanly
-      }
-    })
-  );
+      })
+    );
+  }
 }
 
-async function fetchWithTimeout(request, timeoutMs) {
-  if (typeof AbortController === 'undefined') {
-    return fetch(request);
+async function refreshFullShellCache(cache, extraUrls = [], includeSecondary = true) {
+  const discoveredUrls = [];
+  const routesToFetch = includeSecondary ? ['/', '/admin'] : ['/'];
+
+  for (const pageRoute of routesToFetch) {
+    try {
+      const req = new Request(pageRoute, { credentials: 'same-origin', cache: 'reload' });
+      const res = await fetchWithTimeout(req, 6000);
+      if (res && res.ok && (res.headers.get('content-type') || '').toLowerCase().includes('text/html')) {
+        const clean = await toCleanCacheableResponse(res);
+        if (clean) {
+          await cache.put(pageRoute, clean.clone());
+          const html = await clean.clone().text();
+          discoveredUrls.push(...extractAssetsFromHtml(html));
+        }
+      }
+    } catch {
+      // Continue caching known URLs
+    }
   }
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(request, { signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+
+  await cacheUrlsSafely(
+    cache,
+    [...CORE_PRECACHE_URLS, ...(includeSecondary ? SECONDARY_URLS : []), ...discoveredUrls, ...extraUrls],
+    false
+  );
 }
 
 self.addEventListener('install', (event) => {
@@ -179,20 +232,8 @@ self.addEventListener('install', (event) => {
       const cache = await caches.open(CACHE_NAME);
       await cache.put(FALLBACK_URL, buildEmergencyFallbackResponse());
 
-      let discoveredUrls = [];
-      try {
-        const rootReq = new Request('/', { credentials: 'same-origin', cache: 'reload' });
-        const rootRes = await fetchWithTimeout(rootReq, 8000);
-        if (rootRes && rootRes.ok && (rootRes.headers.get('content-type') || '').toLowerCase().includes('text/html')) {
-          await cache.put('/', rootRes.clone());
-          const html = await rootRes.clone().text();
-          discoveredUrls = extractAssetsFromHtml(html);
-        }
-      } catch {
-        // Continue with PRECACHE_URLS even if root html fetch fails
-      }
-
-      await cacheUrlsSafely(cache, [...PRECACHE_URLS, ...discoveredUrls]);
+      // Fast install: cache '/' and all its HTML-referenced JS/CSS chunks immediately
+      await refreshFullShellCache(cache, [], false);
       await self.skipWaiting();
     })()
   );
@@ -204,6 +245,10 @@ self.addEventListener('activate', (event) => {
       const keys = await caches.keys();
       await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
       await self.clients.claim();
+
+      // Lazily warm /admin in background without blocking activation
+      caches.open(CACHE_NAME).then((cache) => cacheUrlsSafely(cache, SECONDARY_URLS, false)).catch(() => undefined);
+
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const client of clients) {
         client.postMessage({ type: 'SW_ACTIVATED', cacheName: CACHE_NAME });
@@ -212,24 +257,6 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-async function refreshFullShellCache(cache, extraUrls = []) {
-  let discoveredUrls = [];
-  for (const pageRoute of ['/', '/admin']) {
-    try {
-      const req = new Request(pageRoute, { credentials: 'same-origin', cache: 'reload' });
-      const res = await fetchWithTimeout(req, 8000);
-      if (res && res.ok && (res.headers.get('content-type') || '').toLowerCase().includes('text/html')) {
-        await cache.put(pageRoute, res.clone());
-        const html = await res.clone().text();
-        discoveredUrls = discoveredUrls.concat(extractAssetsFromHtml(html));
-      }
-    } catch {
-      // Ignore single route failure
-    }
-  }
-  await cacheUrlsSafely(cache, [...PRECACHE_URLS, ...discoveredUrls, ...extraUrls]);
-}
-
 self.addEventListener('message', (event) => {
   const data = event.data || {};
   if (data.type === 'SKIP_WAITING') {
@@ -237,15 +264,22 @@ self.addEventListener('message', (event) => {
     return;
   }
 
+  if (data.type === 'CLAIM_CLIENTS') {
+    event.waitUntil(self.clients.claim());
+    return;
+  }
+
   if (data.type === 'FORCE_REFRESH_CACHE') {
     event.waitUntil(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
-        await refreshFullShellCache(cache, Array.isArray(data.urls) ? data.urls : []);
+        await refreshFullShellCache(cache, Array.isArray(data.urls) ? data.urls : [], true);
         const allKeys = await cache.keys();
+        const rootMatch = await cache.match('/', { ignoreSearch: true });
         if (event.ports && event.ports[0]) {
           event.ports[0].postMessage({
             type: 'OFFLINE_CACHE_READY',
+            ready: Boolean(rootMatch),
             cachedCount: allKeys.length,
             cacheName: CACHE_NAME,
           });
@@ -259,11 +293,19 @@ self.addEventListener('message', (event) => {
     event.waitUntil(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
-        await cacheUrlsSafely(cache, data.urls);
+        // Ensure '/' is cached if missing
+        const hasRoot = await cache.match('/', { ignoreSearch: true });
+        if (!hasRoot) {
+          await refreshFullShellCache(cache, data.urls, false);
+        } else {
+          await cacheUrlsSafely(cache, data.urls, false);
+        }
         const allKeys = await cache.keys();
+        const rootMatch = await cache.match('/', { ignoreSearch: true });
         if (event.ports && event.ports[0]) {
           event.ports[0].postMessage({
             type: 'OFFLINE_CACHE_READY',
+            ready: Boolean(rootMatch),
             cachedCount: allKeys.length,
             cacheName: CACHE_NAME,
           });
@@ -296,10 +338,15 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
 
-  const url = new URL(request.url);
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return;
+  }
+
   if (url.origin !== self.location.origin) return;
 
-  // Never intercept service worker script itself, API routes, or HMR websocket/endpoints
   if (
     url.pathname === '/sw.js' ||
     url.pathname.startsWith('/api/') ||
@@ -308,40 +355,42 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 1. HTML Page Navigations — Offline-safe with immediate cache fallback and zero Dinosaur error
-  if (request.mode === 'navigate') {
+  // 1. HTML Page Navigations — Offline-safe with clean non-redirected cache response
+  if (request.mode === 'navigate' || request.destination === 'document') {
     event.respondWith(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
         const findCachedNavigation = async () => {
-          const exactOrSearchIgnored =
+          const match =
             (await cache.match(request)) ||
             (await cache.match(request, { ignoreSearch: true })) ||
             (await cache.match(url.pathname)) ||
             (await cache.match('/', { ignoreSearch: true })) ||
-            (await cache.match('/'));
-          return exactOrSearchIgnored || (await cache.match(FALLBACK_URL)) || buildEmergencyFallbackResponse();
+            (await cache.match('/')) ||
+            (await cache.match(FALLBACK_URL));
+          if (match) {
+            return (await toCleanCacheableResponse(match)) || match;
+          }
+          return buildEmergencyFallbackResponse();
         };
 
-        // When browser already knows internet is off, serve cached app shell immediately
+        // When browser knows internet is off, serve cached app shell immediately
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-          const cachedOffline =
-            (await cache.match(request)) ||
-            (await cache.match(request, { ignoreSearch: true })) ||
-            (await cache.match('/', { ignoreSearch: true }));
-          if (cachedOffline) {
-            return cachedOffline;
-          }
+          return await findCachedNavigation();
         }
 
         try {
-          const networkResponse = await fetchWithTimeout(request, 5000);
+          const networkResponse = await fetchWithTimeout(request, 3500);
           if (networkResponse && networkResponse.ok) {
             const ct = (networkResponse.headers.get('content-type') || '').toLowerCase();
             if (ct.includes('text/html')) {
-              await cache.put(request, networkResponse.clone()).catch(() => undefined);
-              if (url.pathname === '/' || url.pathname === '/admin') {
-                await cache.put(url.pathname, networkResponse.clone()).catch(() => undefined);
+              const clean = await toCleanCacheableResponse(networkResponse);
+              if (clean) {
+                await cache.put(request, clean.clone()).catch(() => undefined);
+                if (url.pathname === '/' || url.pathname === '/admin') {
+                  await cache.put(url.pathname, clean.clone()).catch(() => undefined);
+                }
+                return clean;
               }
             }
             return networkResponse;
@@ -349,6 +398,28 @@ self.addEventListener('fetch', (event) => {
           return await findCachedNavigation();
         } catch {
           return await findCachedNavigation();
+        }
+      })()
+    );
+    return;
+  }
+
+  // Handle Next.js RSC soft navigations cleanly offline
+  if (url.searchParams.has('_rsc')) {
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(CACHE_NAME);
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+          return (await cache.match(request)) || Response.error();
+        }
+        try {
+          const res = await fetchWithTimeout(request, 3500);
+          if (res && res.ok) {
+            await cache.put(request, res.clone()).catch(() => undefined);
+          }
+          return res;
+        } catch {
+          return (await cache.match(request)) || Response.error();
         }
       })()
     );
@@ -369,9 +440,10 @@ self.addEventListener('fetch', (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       const matchCached = async () =>
-        (await cache.match(request)) || (await cache.match(request, { ignoreSearch: true }));
+        (await cache.match(request)) ||
+        (await cache.match(request, { ignoreSearch: true })) ||
+        (await cache.match(url.pathname));
 
-      // When offline, serve cached bundle immediately
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         const offlineAsset = await matchCached();
         if (offlineAsset) return offlineAsset;
@@ -379,7 +451,7 @@ self.addEventListener('fetch', (event) => {
 
       if (IS_DEV_HOST) {
         try {
-          const response = await fetchWithTimeout(request, 4000);
+          const response = await fetchWithTimeout(request, 3500);
           if (isValidCacheableAsset(url, response)) {
             await cache.put(request, response.clone()).catch(() => undefined);
           }
@@ -389,7 +461,6 @@ self.addEventListener('fetch', (event) => {
         }
       }
 
-      // Production / Pre-release: serve fast from cache and refresh in background
       const cached = await matchCached();
       const networkPromise = fetch(request)
         .then((response) => {

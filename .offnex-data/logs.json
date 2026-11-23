@@ -1,5 +1,23 @@
 [
   {
+    "id": "srv-1795428669889-39de",
+    "timestamp": "2026-11-23T10:11:09.889Z",
+    "level": "warn",
+    "category": "chat",
+    "message": "Deleted conversation conv-verify-1795428669351",
+    "actor": "admin",
+    "source": "server"
+  },
+  {
+    "id": "srv-1795428669440-e521",
+    "timestamp": "2026-11-23T10:11:09.443Z",
+    "level": "info",
+    "category": "chat",
+    "message": "Created chat \"Verify Email Attribution\"",
+    "actor": "rizwan@gmail.com",
+    "source": "server"
+  },
+  {
     "id": "srv-1795427846011-2642",
     "timestamp": "2026-11-23T09:57:26.011Z",
     "level": "info",

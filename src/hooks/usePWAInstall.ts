@@ -11,6 +11,7 @@ export type DevicePlatform = 'ios' | 'android' | 'desktop';
 
 export interface OfflineCacheStatus {
   ready: boolean;
+  controlled: boolean;
   cachedCount: number;
   cacheName: string;
 }
@@ -89,17 +90,25 @@ export async function warmOfflineAppCache(
     const worker = navigator.serviceWorker.controller || registration.active;
     if (!worker) return null;
 
+    if (!navigator.serviceWorker.controller && registration.active) {
+      registration.active.postMessage({ type: 'CLAIM_CLIENTS' });
+    }
+
     const urls = collectRuntimeAssetUrls(extraUrls);
     return await new Promise<OfflineCacheStatus | null>((resolve) => {
       const channel = new MessageChannel();
-      const timeout = setTimeout(() => resolve(null), 6000);
+      const timeout = setTimeout(async () => {
+        const direct = await getOfflineCacheStatus();
+        resolve(direct);
+      }, 6500);
       channel.port1.onmessage = (ev) => {
         clearTimeout(timeout);
-        const data = ev.data as { cachedCount?: number; cacheName?: string };
+        const data = ev.data as { ready?: boolean; cachedCount?: number; cacheName?: string };
         resolve({
-          ready: true,
+          ready: data?.ready !== false,
+          controlled: Boolean(navigator.serviceWorker.controller),
           cachedCount: data?.cachedCount || urls.length,
-          cacheName: data?.cacheName || 'offnex-ai-shell',
+          cacheName: data?.cacheName || 'offnex-ai-shell-v6',
         });
       };
       worker.postMessage(
@@ -124,28 +133,51 @@ export async function checkServiceWorkerUpdate(): Promise<void> {
 
 export async function getOfflineCacheStatus(): Promise<OfflineCacheStatus | null> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
+  const controlled = Boolean(navigator.serviceWorker.controller);
+
   try {
     const registration = await navigator.serviceWorker.ready;
     const worker = navigator.serviceWorker.controller || registration.active;
-    if (!worker) return null;
-
-    return await new Promise<OfflineCacheStatus | null>((resolve) => {
-      const channel = new MessageChannel();
-      const timeout = setTimeout(() => resolve(null), 3000);
-      channel.port1.onmessage = (ev) => {
-        clearTimeout(timeout);
-        const data = ev.data as { ready?: boolean; cachedCount?: number; cacheName?: string };
-        resolve({
-          ready: Boolean(data?.ready),
-          cachedCount: data?.cachedCount || 0,
-          cacheName: data?.cacheName || 'offnex-ai-shell',
-        });
-      };
-      worker.postMessage({ type: 'PING_CACHE_STATUS' }, [channel.port2]);
-    });
+    if (worker) {
+      const pingResult = await new Promise<OfflineCacheStatus | null>((resolve) => {
+        const channel = new MessageChannel();
+        const timeout = setTimeout(() => resolve(null), 2500);
+        channel.port1.onmessage = (ev) => {
+          clearTimeout(timeout);
+          const data = ev.data as { ready?: boolean; cachedCount?: number; cacheName?: string };
+          resolve({
+            ready: Boolean(data?.ready),
+            controlled: Boolean(navigator.serviceWorker.controller),
+            cachedCount: data?.cachedCount || 0,
+            cacheName: data?.cacheName || 'offnex-ai-shell-v6',
+          });
+        };
+        worker.postMessage({ type: 'PING_CACHE_STATUS' }, [channel.port2]);
+      });
+      if (pingResult) return pingResult;
+    }
   } catch {
-    return null;
+    // Fall back to reading CacheStorage directly
   }
+
+  try {
+    if ('caches' in window) {
+      const cacheNames = await caches.keys();
+      const targetName = cacheNames.find((n) => n.startsWith('offnex-ai-shell')) || 'offnex-ai-shell-v6';
+      const cache = await caches.open(targetName);
+      const keys = await cache.keys();
+      const rootMatch = await cache.match('/', { ignoreSearch: true });
+      return {
+        ready: Boolean(rootMatch),
+        controlled,
+        cachedCount: keys.length,
+        cacheName: targetName,
+      };
+    }
+  } catch {
+    // Ignore CacheStorage errors
+  }
+  return null;
 }
 
 export function initPWAListeners() {
@@ -172,7 +204,7 @@ export function initPWAListeners() {
   window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
   window.addEventListener('appinstalled', handleAppInstalled);
 
-  // Register Service Worker early, auto-activate new versions, and warm offline shell cache
+  // Register Service Worker early, auto-activate new versions, claim clients, and warm offline shell cache
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker
       .register('/sw.js', { scope: '/', updateViaCache: 'none' })
@@ -181,11 +213,15 @@ export function initPWAListeners() {
           registration.waiting.postMessage({ type: 'SKIP_WAITING' });
         }
 
+        if (!navigator.serviceWorker.controller && registration.active) {
+          registration.active.postMessage({ type: 'CLAIM_CLIENTS' });
+        }
+
         registration.addEventListener('updatefound', () => {
           const installing = registration.installing;
           if (!installing) return;
           installing.addEventListener('statechange', () => {
-            if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+            if (installing.state === 'installed') {
               installing.postMessage({ type: 'SKIP_WAITING' });
             }
           });
@@ -195,7 +231,7 @@ export function initPWAListeners() {
         if (navigator.onLine) {
           setTimeout(() => {
             void warmOfflineAppCache();
-          }, 900);
+          }, 500);
         }
       })
       .catch(() => {
@@ -206,6 +242,7 @@ export function initPWAListeners() {
       if (navigator.onLine) {
         void warmOfflineAppCache([], true);
       }
+      notifySubscribers();
     });
   }
 }

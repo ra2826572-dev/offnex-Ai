@@ -280,7 +280,23 @@ function getState(): BackendDbState {
     if (updatedUsers) writeJsonAtomic(FILES.users, users);
   }
 
-  const conversations = readJsonSafe<Conversation[]>(FILES.conversations, []);
+  const rawConversations = readJsonSafe<Conversation[]>(FILES.conversations, []);
+  const conversationsList = Array.isArray(rawConversations) ? rawConversations : [];
+  let enrichedAnyConv = false;
+  const conversations = conversationsList.map((c) => {
+    const next = enrichConversationWithUser(c, users);
+    if (
+      next.userId !== c.userId ||
+      next.userEmail !== c.userEmail ||
+      next.userName !== c.userName
+    ) {
+      enrichedAnyConv = true;
+    }
+    return next;
+  });
+  if (enrichedAnyConv) {
+    writeJsonAtomic(FILES.conversations, conversations);
+  }
   const messages = readJsonSafe<Message[]>(FILES.messages, []);
   const images = readJsonSafe<GeneratedImageRecord[]>(FILES.images, []);
   const documents = readJsonSafe<StoredDocumentSummary[]>(FILES.documents, []);
@@ -619,11 +635,75 @@ export function deleteUserByAdminBackend(id: string): boolean {
 
 // ==================== CONVERSATIONS & MESSAGES ====================
 
-export function listBackendConversations(userId?: string): Conversation[] {
+function resolveStoredUserForRef(
+  users: StoredUserRecord[],
+  userId?: string,
+  userEmail?: string
+): StoredUserRecord | undefined {
+  const cleanId = userId?.trim();
+  const cleanEmail = userEmail?.trim().toLowerCase();
+  if (cleanId) {
+    const byId = users.find((u) => u.id === cleanId);
+    if (byId) return byId;
+  }
+  if (cleanEmail) {
+    const byEmail = users.find((u) => u.email.toLowerCase() === cleanEmail);
+    if (byEmail) return byEmail;
+  }
+  return undefined;
+}
+
+function enrichConversationWithUser(
+  conv: Conversation,
+  users: StoredUserRecord[]
+): Conversation {
+  const matched = resolveStoredUserForRef(users, conv.userId, conv.userEmail);
+  const fullName = matched
+    ? [matched.firstName, matched.lastName].filter(Boolean).join(' ').trim() || matched.email
+    : undefined;
+  const resolvedEmail = (conv.userEmail?.trim() || matched?.email || '').toLowerCase() || undefined;
+  const resolvedUserId = conv.userId?.trim() || matched?.id || undefined;
+  const resolvedName = conv.userName?.trim() || fullName || resolvedEmail || undefined;
+
+  return {
+    ...conv,
+    ...(resolvedUserId ? { userId: resolvedUserId } : {}),
+    ...(resolvedEmail ? { userEmail: resolvedEmail } : {}),
+    ...(resolvedName ? { userName: resolvedName } : {}),
+  };
+}
+
+export function listBackendConversations(
+  filter?: string | { userId?: string; userEmail?: string }
+): Conversation[] {
   const state = getState();
-  const list = userId
-    ? state.conversations.filter((c) => c.userId === userId)
-    : state.conversations;
+  const filterObj =
+    typeof filter === 'string' ? { userId: filter } : filter || undefined;
+  const targetUser = resolveStoredUserForRef(
+    state.users,
+    filterObj?.userId,
+    filterObj?.userEmail
+  );
+  const targetId = filterObj?.userId?.trim() || targetUser?.id;
+  const targetEmail = (
+    filterObj?.userEmail?.trim() || targetUser?.email || ''
+  ).toLowerCase();
+
+  const enrichedAll = state.conversations.map((c) =>
+    enrichConversationWithUser(c, state.users)
+  );
+
+  const list =
+    targetId || targetEmail
+      ? enrichedAll.filter((c) => {
+          const matchesId = Boolean(targetId && c.userId === targetId);
+          const matchesEmail = Boolean(
+            targetEmail && c.userEmail?.toLowerCase() === targetEmail
+          );
+          return matchesId || matchesEmail;
+        })
+      : enrichedAll;
+
   return [...list].sort(
     (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
   );
@@ -632,17 +712,26 @@ export function listBackendConversations(userId?: string): Conversation[] {
 export function listBackendMessages(options?: {
   conversationId?: string;
   userId?: string;
+  userEmail?: string;
 }): Message[] {
   const state = getState();
   if (options?.conversationId) {
     return state.messages.filter((m) => m.conversationId === options.conversationId);
   }
-  if (options?.userId) {
-    const convIds = new Set(
-      state.conversations.filter((c) => c.userId === options.userId).map((c) => c.id)
+  if (options?.userId || options?.userEmail) {
+    const userConvs = listBackendConversations({
+      userId: options.userId,
+      userEmail: options.userEmail,
+    });
+    const convIds = new Set(userConvs.map((c) => c.id));
+    const targetUser = resolveStoredUserForRef(
+      state.users,
+      options.userId,
+      options.userEmail
     );
+    const targetId = options.userId || targetUser?.id;
     return state.messages.filter(
-      (m) => m.userId === options.userId || convIds.has(m.conversationId)
+      (m) => (targetId && m.userId === targetId) || convIds.has(m.conversationId)
     );
   }
   return [...state.messages];
@@ -651,13 +740,18 @@ export function listBackendMessages(options?: {
 export function upsertBackendConversation(conv: Conversation): Conversation {
   const state = getState();
   const idx = state.conversations.findIndex((c) => c.id === conv.id);
-  const normalized: Conversation = {
-    ...conv,
-    updatedAt: conv.updatedAt || new Date().toISOString(),
-    createdAt: conv.createdAt || new Date().toISOString(),
-  };
+  const mergedInput: Conversation =
+    idx !== -1 ? { ...state.conversations[idx], ...conv } : conv;
+  const normalized: Conversation = enrichConversationWithUser(
+    {
+      ...mergedInput,
+      updatedAt: conv.updatedAt || new Date().toISOString(),
+      createdAt: mergedInput.createdAt || new Date().toISOString(),
+    },
+    state.users
+  );
   if (idx !== -1) {
-    state.conversations[idx] = { ...state.conversations[idx], ...normalized };
+    state.conversations[idx] = normalized;
   } else {
     state.conversations.unshift(normalized);
     appendBackendLog(
@@ -681,7 +775,13 @@ export function upsertBackendMessages(items: Message[]): Message[] {
 
   for (const rawMsg of items) {
     if (!rawMsg?.id || !rawMsg?.conversationId) continue;
-    let nextMsg = { ...rawMsg };
+    const parentConv = state.conversations.find((c) => c.id === rawMsg.conversationId);
+    let nextMsg = {
+      ...rawMsg,
+      ...(rawMsg.userId || parentConv?.userId
+        ? { userId: rawMsg.userId || parentConv?.userId }
+        : {}),
+    };
 
     if (nextMsg.imageGeneration) {
       const persistedImgs: GeneratedImageItem[] = (nextMsg.imageGeneration.images || []).map(
@@ -1297,7 +1397,10 @@ export function getBackendLiveSyncSnapshot(options?: {
   const uid = matchedUser?.id || options?.userId;
   const uEmail = matchedUser?.email || options?.email;
 
-  const userConvs = uid ? listBackendConversations(uid) : state.conversations;
+  const userConvs =
+    uid || uEmail
+      ? listBackendConversations({ userId: uid, userEmail: uEmail })
+      : listBackendConversations();
   const userImgs = uid ? listBackendImages(uid) : state.images;
   const userTickets = uid || uEmail ? listBackendTickets(uid, uEmail) : state.tickets;
   const userDocs = uid ? listBackendDocuments(uid) : state.documents;
