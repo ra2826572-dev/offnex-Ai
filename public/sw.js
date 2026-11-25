@@ -1,4 +1,4 @@
-const CACHE_NAME = 'offnex-ai-shell-v7';
+const CACHE_NAME = 'offnex-ai-shell-v8';
 const FALLBACK_URL = '/__offline_shell__';
 const CORE_PRECACHE_URLS = [
   '/',
@@ -14,11 +14,6 @@ const CORE_PRECACHE_URLS = [
   '/sw-register.js',
 ];
 const SECONDARY_URLS = ['/admin'];
-
-const IS_DEV_HOST =
-  self.location.hostname === 'localhost' ||
-  self.location.hostname === '127.0.0.1' ||
-  self.location.hostname.startsWith('ais-dev-');
 
 function buildEmergencyFallbackResponse() {
   const html = `<!doctype html>
@@ -65,6 +60,16 @@ async function toCleanCacheableResponse(response) {
   } catch {
     return response;
   }
+}
+
+function isValidAppHtml(htmlText) {
+  if (!htmlText || typeof htmlText !== 'string') return false;
+  return (
+    htmlText.includes('/_next/') ||
+    htmlText.includes('sw-register.js') ||
+    htmlText.includes('Offnex') ||
+    htmlText.includes('OfflineGPT')
+  );
 }
 
 function isValidCacheableAsset(requestUrl, response) {
@@ -120,7 +125,6 @@ function extractAssetsFromHtml(htmlText) {
   while ((match = attrRegex.exec(htmlText)) !== null) {
     addAssetIfAllowed(discovered, match[1]);
   }
-  // Also catch Next.js Flight inline script chunk references
   const staticRegex = /\/_next\/static\/[^"'\s<>\\]+/gi;
   while ((match = staticRegex.exec(htmlText)) !== null) {
     addAssetIfAllowed(discovered, match[0]);
@@ -165,7 +169,6 @@ async function cacheUrlsSafely(cache, urls, forceRefreshPages = false) {
     )
   );
 
-  // Batch fetches cleanly (6 at a time) so Chrome socket pool stays responsive
   const BATCH_SIZE = 6;
   for (let i = 0; i < unique.length; i += BATCH_SIZE) {
     const batch = unique.slice(i, i + BATCH_SIZE);
@@ -189,8 +192,11 @@ async function cacheUrlsSafely(cache, urls, forceRefreshPages = false) {
             if (ct.includes('text/html')) {
               const clean = await toCleanCacheableResponse(res);
               if (clean) {
-                await cache.put(targetUrl, clean.clone());
-                await cache.put(parsed.pathname, clean.clone());
+                const html = await clean.clone().text();
+                if (isValidAppHtml(html)) {
+                  await cache.put(targetUrl, clean.clone());
+                  await cache.put(parsed.pathname, clean.clone());
+                }
               }
             }
             return;
@@ -210,6 +216,35 @@ async function cacheUrlsSafely(cache, urls, forceRefreshPages = false) {
   }
 }
 
+async function cacheFastInstallShell(cache) {
+  const essential = ['/', '/manifest.webmanifest', '/sw-register.js', '/pwa-192x192.png'];
+  await Promise.allSettled(
+    essential.map(async (route) => {
+      try {
+        const res = await fetchWithTimeout(new Request(route, { credentials: 'same-origin' }), 5000);
+        if (!res || !res.ok) return;
+        const clean = await toCleanCacheableResponse(res);
+        if (!clean) return;
+        const fullUrl = new URL(route, self.location.origin).href;
+        if (route === '/') {
+          const html = await clean.clone().text();
+          if (!isValidAppHtml(html)) return;
+          await cache.put('/', clean.clone());
+          await cache.put(fullUrl, clean.clone());
+          return;
+        }
+        const parsed = new URL(fullUrl);
+        if (isValidCacheableAsset(parsed, clean)) {
+          await cache.put(route, clean.clone());
+          await cache.put(fullUrl, clean.clone());
+        }
+      } catch {
+        // Ignore transient timeout during fast install
+      }
+    })
+  );
+}
+
 async function refreshFullShellCache(cache, extraUrls = [], includeSecondary = true) {
   const discoveredUrls = [];
   const routesToFetch = includeSecondary ? ['/', '/admin'] : ['/'];
@@ -226,11 +261,13 @@ async function refreshFullShellCache(cache, extraUrls = [], includeSecondary = t
         ) {
           const clean = await toCleanCacheableResponse(res);
           if (clean) {
-            await cache.put(pageRoute, clean.clone());
-            const fullUrl = new URL(pageRoute, self.location.origin).href;
-            await cache.put(fullUrl, clean.clone());
             const html = await clean.clone().text();
-            discoveredUrls.push(...extractAssetsFromHtml(html));
+            if (isValidAppHtml(html)) {
+              await cache.put(pageRoute, clean.clone());
+              const fullUrl = new URL(pageRoute, self.location.origin).href;
+              await cache.put(fullUrl, clean.clone());
+              discoveredUrls.push(...extractAssetsFromHtml(html));
+            }
           }
         }
       } catch {
@@ -256,9 +293,8 @@ self.addEventListener('install', (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       await cache.put(FALLBACK_URL, buildEmergencyFallbackResponse());
-
-      // Precache '/' + '/admin' and all HTML-referenced JS/CSS chunks + icons immediately on install
-      await refreshFullShellCache(cache, [], true);
+      // Fast critical install (<1-5s) so Service Worker activates IMMEDIATELY and controls pages right away
+      await cacheFastInstallShell(cache);
       await self.skipWaiting();
     })()
   );
@@ -267,20 +303,38 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     (async () => {
+      const cache = await caches.open(CACHE_NAME);
       const keys = await caches.keys();
+
+      // Migrate cached '/' from previous shell cache if current cache doesn't have it yet
+      const hasRoot = await cache.match('/', { ignoreSearch: true });
+      if (!hasRoot) {
+        for (const oldKey of keys) {
+          if (oldKey === CACHE_NAME || !oldKey.startsWith('offnex-ai-shell')) continue;
+          try {
+            const oldCache = await caches.open(oldKey);
+            const oldRoot = await oldCache.match('/', { ignoreSearch: true });
+            if (oldRoot) {
+              await cache.put('/', oldRoot.clone());
+              await cache.put(new URL('/', self.location.origin).href, oldRoot.clone());
+              break;
+            }
+          } catch {
+            // Ignore migration errors
+          }
+        }
+      }
+
       await Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)));
       await self.clients.claim();
-
-      // Ensure full shell & /admin assets are warmed right after activation
-      caches
-        .open(CACHE_NAME)
-        .then((cache) => refreshFullShellCache(cache, [], true))
-        .catch(() => undefined);
 
       const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       for (const client of clients) {
         client.postMessage({ type: 'SW_ACTIVATED', cacheName: CACHE_NAME });
       }
+
+      // Warm full shell chunks, /admin, and icons in background while SW is already active
+      await refreshFullShellCache(cache, [], true);
     })()
   );
 });
@@ -382,7 +436,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 1. HTML Page Navigations — Offline-first safety with fast background/timeout refresh
+  // 1. HTML Page Navigations — Offline-first & fast 1200ms network race when cached shell exists
   if (request.mode === 'navigate' || request.destination === 'document') {
     event.respondWith(
       (async () => {
@@ -403,13 +457,11 @@ self.addEventListener('fetch', (event) => {
 
         const cachedDoc = await findCachedNavigation();
 
-        // When browser knows internet is off, serve cached app shell immediately
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
           return cachedDoc || buildEmergencyFallbackResponse();
         }
 
-        // Try network with shorter timeout when cached shell already exists so flaky Wi-Fi never stalls PWA launch
-        const timeoutMs = cachedDoc ? 2200 : 8000;
+        const timeoutMs = cachedDoc ? 1200 : 7000;
         try {
           const networkResponse = await fetchWithTimeout(request, timeoutMs);
           if (networkResponse && networkResponse.ok) {
@@ -417,11 +469,19 @@ self.addEventListener('fetch', (event) => {
             if (ct.includes('text/html')) {
               const clean = await toCleanCacheableResponse(networkResponse);
               if (clean) {
-                await cache.put(request, clean.clone()).catch(() => undefined);
-                if (url.pathname === '/' || url.pathname === '/admin') {
-                  await cache.put(url.pathname, clean.clone()).catch(() => undefined);
+                const html = await clean.clone().text();
+                if (isValidAppHtml(html)) {
+                  await cache.put(request, clean.clone()).catch(() => undefined);
+                  if (url.pathname === '/' || url.pathname === '/admin') {
+                    await cache.put(url.pathname, clean.clone()).catch(() => undefined);
+                  }
+                  const discovered = extractAssetsFromHtml(html);
+                  if (discovered.length > 0) {
+                    event.waitUntil(cacheUrlsSafely(cache, discovered, false));
+                  }
+                  return clean;
                 }
-                return clean;
+                if (cachedDoc) return cachedDoc;
               }
             }
             return networkResponse;
@@ -444,7 +504,7 @@ self.addEventListener('fetch', (event) => {
           return (await cache.match(request)) || Response.error();
         }
         try {
-          const res = await fetchWithTimeout(request, 2500);
+          const res = await fetchWithTimeout(request, 2000);
           if (res && res.ok) {
             await cache.put(request, res.clone()).catch(() => undefined);
           }
@@ -467,40 +527,28 @@ self.addEventListener('fetch', (event) => {
 
   if (!isStaticAsset) return;
 
-  // 2. Static Assets (JS chunks, CSS, media, fonts, icons, manifest)
+  // 2. Static Assets — Instant Cache-First + Background Revalidate across all hosts
+  // (OfflineBootstrap refreshes shell cleanly when live appVersion changes)
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
-      const matchCached = async () =>
+      const cached =
         (await cache.match(request)) ||
         (await cache.match(request, { ignoreSearch: true })) ||
         (await cache.match(url.pathname));
-
-      const cached = await matchCached();
 
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         return cached || Response.error();
       }
 
-      if (IS_DEV_HOST) {
-        // Use fast timeout when cached exists so offline/broken router never hangs chunk loading
-        try {
-          const response = await fetchWithTimeout(request, cached ? 900 : 4000);
-          if (isValidCacheableAsset(url, response)) {
-            await cache.put(request, response.clone()).catch(() => undefined);
-            return response;
-          }
-          if (cached) return cached;
-          return response;
-        } catch {
-          return cached || Response.error();
-        }
-      }
-
       const networkPromise = fetchWithTimeout(request, 6000)
-        .then((response) => {
+        .then(async (response) => {
           if (isValidCacheableAsset(url, response)) {
-            cache.put(request, response.clone()).catch(() => undefined);
+            const clean = await toCleanCacheableResponse(response);
+            if (clean) {
+              await cache.put(request, clean.clone()).catch(() => undefined);
+              return clean;
+            }
           }
           return response;
         })

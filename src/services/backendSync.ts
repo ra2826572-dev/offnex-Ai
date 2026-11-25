@@ -14,13 +14,27 @@ function isOnline(): boolean {
   return typeof window !== 'undefined' && typeof navigator !== 'undefined' && navigator.onLine;
 }
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit = {},
+  timeoutMs: number = 3500
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function syncConversationToBackend(
   conversation?: Conversation,
   messages?: Message[]
 ): Promise<void> {
   if (!isOnline()) return;
   try {
-    await fetch('/api/chats', {
+    await fetchWithTimeout('/api/chats', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -37,7 +51,7 @@ export async function syncConversationToBackend(
 export async function deleteConversationOnBackend(id: string): Promise<void> {
   if (!isOnline()) return;
   try {
-    await fetch(`/api/chats?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await fetchWithTimeout(`/api/chats?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   } catch {
     // Ignore offline error
   }
@@ -52,7 +66,7 @@ export async function fetchUserChatsFromBackend(
     const qs = new URLSearchParams();
     if (userId) qs.set('userId', userId);
     if (userEmail) qs.set('userEmail', userEmail);
-    const res = await fetch(`/api/chats?${qs.toString()}`, {
+    const res = await fetchWithTimeout(`/api/chats?${qs.toString()}`, {
       cache: 'no-store',
     });
     if (!res.ok) return null;
@@ -65,7 +79,7 @@ export async function fetchUserChatsFromBackend(
 export async function syncImageRecordToBackend(record: GeneratedImageRecord): Promise<void> {
   if (!isOnline()) return;
   try {
-    await fetch('/api/images', {
+    await fetchWithTimeout('/api/images', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -73,7 +87,7 @@ export async function syncImageRecordToBackend(record: GeneratedImageRecord): Pr
         ...(record.userEmail ? { 'x-user-email': record.userEmail } : {}),
       },
       body: JSON.stringify({ record }),
-    });
+    }, 6000);
   } catch {
     // Graceful offline fallback
   }
@@ -84,7 +98,7 @@ export async function deleteImageRecordOnBackend(id: string, userId?: string): P
   try {
     const qs = new URLSearchParams({ id });
     if (userId) qs.set('userId', userId);
-    await fetch(`/api/images?${qs.toString()}`, { method: 'DELETE' });
+    await fetchWithTimeout(`/api/images?${qs.toString()}`, { method: 'DELETE' });
   } catch {
     // Ignore offline error
   }
@@ -99,7 +113,7 @@ export async function fetchUserImagesFromBackend(
     const qs = new URLSearchParams();
     if (userId) qs.set('userId', userId);
     if (userEmail) qs.set('userEmail', userEmail);
-    const res = await fetch(`/api/images?${qs.toString()}`, {
+    const res = await fetchWithTimeout(`/api/images?${qs.toString()}`, {
       cache: 'no-store',
     });
     if (!res.ok) return null;
@@ -113,7 +127,7 @@ export async function fetchUserImagesFromBackend(
 export async function syncDocumentToBackend(doc: StoredDocument): Promise<void> {
   if (!isOnline()) return;
   try {
-    await fetch('/api/documents', {
+    await fetchWithTimeout('/api/documents', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -129,7 +143,7 @@ export async function syncDocumentToBackend(doc: StoredDocument): Promise<void> 
 export async function syncSettingsToBackend(settings: AppSettings): Promise<void> {
   if (!isOnline()) return;
   try {
-    await fetch('/api/settings', {
+    await fetchWithTimeout('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
@@ -142,7 +156,7 @@ export async function syncSettingsToBackend(settings: AppSettings): Promise<void
 export async function fetchSettingsFromBackend(): Promise<AppSettings | null> {
   if (!isOnline()) return null;
   try {
-    const res = await fetch('/api/settings', { cache: 'no-store' });
+    const res = await fetchWithTimeout('/api/settings', { cache: 'no-store' });
     if (!res.ok) return null;
     const data = (await res.json()) as { settings?: AppSettings };
     return data.settings || null;
@@ -154,7 +168,7 @@ export async function fetchSettingsFromBackend(): Promise<AppSettings | null> {
 export async function saveTicketToBackend(ticket: SupportTicket): Promise<SupportTicket | null> {
   if (!isOnline()) return null;
   try {
-    const res = await fetch('/api/tickets', {
+    const res = await fetchWithTimeout('/api/tickets', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ticket }),
@@ -170,7 +184,7 @@ export async function saveTicketToBackend(ticket: SupportTicket): Promise<Suppor
 export async function deleteTicketOnBackend(id: string): Promise<void> {
   if (!isOnline()) return;
   try {
-    await fetch(`/api/tickets?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await fetchWithTimeout(`/api/tickets?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   } catch {
     // Ignore
   }
@@ -185,7 +199,7 @@ export async function fetchUserTicketsFromBackend(
     const qs = new URLSearchParams();
     if (userId) qs.set('userId', userId);
     if (userEmail) qs.set('userEmail', userEmail);
-    const res = await fetch(`/api/tickets?${qs.toString()}`, { cache: 'no-store' });
+    const res = await fetchWithTimeout(`/api/tickets?${qs.toString()}`, { cache: 'no-store' });
     if (!res.ok) return null;
     const data = (await res.json()) as { tickets?: SupportTicket[] };
     return Array.isArray(data.tickets) ? data.tickets : [];
@@ -199,7 +213,7 @@ export async function pushActivityLogToBackend(
 ): Promise<void> {
   if (!isOnline()) return;
   try {
-    await fetch('/api/admin/logs', {
+    await fetchWithTimeout('/api/admin/logs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
@@ -211,7 +225,7 @@ export async function pushActivityLogToBackend(
 
 async function fetchJsonSafe<T>(url: string): Promise<T | null> {
   try {
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetchWithTimeout(url, { cache: 'no-store' }, 4500);
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -222,7 +236,7 @@ async function fetchJsonSafe<T>(url: string): Promise<T | null> {
 export async function fetchAdminBootstrapFromBackend(): Promise<AdminBootstrapResponse | null> {
   if (!isOnline()) return null;
   try {
-    const res = await fetch('/api/admin/bootstrap', { cache: 'no-store' });
+    const res = await fetchWithTimeout('/api/admin/bootstrap', { cache: 'no-store' }, 5000);
     if (res.ok) {
       const data = (await res.json()) as AdminBootstrapResponse;
       if (data && Array.isArray(data.users) && Array.isArray(data.images)) {
@@ -335,7 +349,7 @@ export async function fetchLiveSyncState(
     if (userId) qs.set('userId', userId);
     if (email) qs.set('email', email);
     const query = qs.toString();
-    const res = await fetch(`/api/sync/live${query ? `?${query}` : ''}`, {
+    const res = await fetchWithTimeout(`/api/sync/live${query ? `?${query}` : ''}`, {
       cache: 'no-store',
     });
     if (!res.ok) return null;

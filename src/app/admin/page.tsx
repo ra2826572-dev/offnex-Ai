@@ -28,14 +28,18 @@ export default function AdminRoutePage() {
 
       let unlocked = false;
       if (typeof navigator !== 'undefined' && navigator.onLine) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
         try {
-          const res = await fetch('/api/admin/auth', { cache: 'no-store' });
+          const res = await fetch('/api/admin/auth', { cache: 'no-store', signal: controller.signal });
           if (res.ok) {
             const data = (await res.json()) as { authenticated?: boolean };
             unlocked = Boolean(data.authenticated);
           }
         } catch {
           // Offline fallback below
+        } finally {
+          clearTimeout(timer);
         }
       }
 
@@ -71,11 +75,15 @@ export default function AdminRoutePage() {
 
     try {
       if (typeof navigator !== 'undefined' && navigator.onLine) {
-        const res = await fetch('/api/admin/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password: passwordInput.trim() }),
-        });
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3500);
+        try {
+          const res = await fetch('/api/admin/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({ password: passwordInput.trim() }),
+          });
         const data = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
           error?: string;
@@ -92,9 +100,14 @@ export default function AdminRoutePage() {
           return;
         }
 
-        if (res.status === 401 || res.status === 403) {
-          setAuthError(data.error || 'Incorrect admin password.');
-          return;
+          if (res.status === 401 || res.status === 403) {
+            setAuthError(data.error || 'Incorrect admin password.');
+            return;
+          }
+        } catch {
+          // Network unreachable or timed out -> fall through to offline passcode check
+        } finally {
+          clearTimeout(timer);
         }
       }
 

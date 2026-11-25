@@ -207,29 +207,106 @@ export function OfflineGptWorkspace() {
       }
       setIsHydrated(true);
 
+      await db.init();
+      const loadedSettings = await db.getSettings();
+      setSettings(loadedSettings);
+      setLanguage(loadedSettings.language);
+      if (loadedSettings.defaultModel) {
+        setActiveModel(loadedSettings.defaultModel);
+        aiEngine.setActiveModel(loadedSettings.defaultModel);
+      }
+
+      // Phase 1: Render all local IndexedDB data IMMEDIATELY (<50ms) so offline / dead Wi-Fi never blocks startup
+      const immediateEmail = immediateUser?.email;
+      const immediateUid = immediateUser?.id;
+      const immediateOwnerName = immediateUser
+        ? [immediateUser.firstName, immediateUser.lastName].filter(Boolean).join(' ').trim() ||
+          immediateUser.email
+        : undefined;
+
+      const allLocalConvs = await db.getConversations();
+      const immediateConvs = immediateUid
+        ? allLocalConvs.filter(
+            (c) =>
+              !c.userId ||
+              c.userId === immediateUid ||
+              (immediateEmail && c.userEmail?.toLowerCase() === immediateEmail.toLowerCase())
+          )
+        : allLocalConvs;
+      setConversations(immediateConvs);
+      if (immediateConvs.length > 0) {
+        setActiveConversationId(immediateConvs[0].id);
+        setMessages(await db.getMessages(immediateConvs[0].id));
+      }
+
+      const [docs, nts, flds] = await Promise.all([
+        db.getDocuments(),
+        db.getNotes(),
+        db.getFolders(),
+      ]);
+      setDocuments(docs);
+      setNotes(nts);
+      setFolders(flds);
+
+      if (immediateUid) {
+        const allLocalImgs = await db.getAllImageHistory();
+        const emailLow = immediateEmail?.toLowerCase();
+        const immediateImgs: GeneratedImageRecord[] = [];
+        for (const rec of allLocalImgs) {
+          const belongs =
+            rec.userId === immediateUid ||
+            !rec.userId ||
+            rec.userId === 'anonymous' ||
+            (emailLow && rec.userEmail?.toLowerCase() === emailLow);
+          if (!belongs) continue;
+          const needsClaim = !rec.userId || rec.userId === 'anonymous' || !rec.userEmail;
+          const claimed: GeneratedImageRecord = needsClaim
+            ? {
+                ...rec,
+                userId: rec.userId && rec.userId !== 'anonymous' ? rec.userId : immediateUid,
+                userEmail: rec.userEmail || immediateEmail,
+                userName: rec.userName || immediateOwnerName || immediateEmail,
+              }
+            : rec;
+          if (needsClaim) {
+            await db.saveImageRecord(claimed);
+          }
+          immediateImgs.push(claimed);
+        }
+        setImageHistory(immediateImgs);
+      }
+
+      // Phase 2: Non-blocking background sync when online
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setIsOllamaConnected(false);
+        return;
+      }
+
       await authService.init();
       const syncedUser = authService.getCurrentUser();
       if (syncedUser) {
         setCurrentUser(syncedUser);
       }
 
-      await db.init();
-      const loadedSettings = await db.getSettings();
-      const backendSettings = await fetchSettingsFromBackend();
-      const effectiveSettings = backendSettings
-        ? { ...loadedSettings, ...backendSettings }
-        : loadedSettings;
+      const [backendSettings, initialLive, ollamaStatus] = await Promise.all([
+        fetchSettingsFromBackend(),
+        fetchLiveSyncState(syncedUser?.id, syncedUser?.email),
+        aiEngine.checkOllamaStatus(),
+      ]);
+
+      setIsOllamaConnected(ollamaStatus.connected);
+
       if (backendSettings) {
+        const effectiveSettings = { ...loadedSettings, ...backendSettings };
         await db.saveSettings(effectiveSettings);
-      }
-      setSettings(effectiveSettings);
-      setLanguage(effectiveSettings.language);
-      if (effectiveSettings.defaultModel) {
-        setActiveModel(effectiveSettings.defaultModel);
-        aiEngine.setActiveModel(effectiveSettings.defaultModel);
+        setSettings(effectiveSettings);
+        setLanguage(effectiveSettings.language);
+        if (effectiveSettings.defaultModel) {
+          setActiveModel(effectiveSettings.defaultModel);
+          aiEngine.setActiveModel(effectiveSettings.defaultModel);
+        }
       }
 
-      const initialLive = await fetchLiveSyncState(syncedUser?.id, syncedUser?.email);
       if (initialLive) {
         lastRevisionRef.current = initialLive.dataRevision;
         if (initialLive.config) {
@@ -241,22 +318,20 @@ export function OfflineGptWorkspace() {
         }
       }
 
-      const allLocalConvs = await db.getConversations();
       const uid = syncedUser?.id;
       const uEmail = syncedUser?.email;
       const uOwnerName = syncedUser
         ? [syncedUser.firstName, syncedUser.lastName].filter(Boolean).join(' ').trim() || syncedUser.email
         : undefined;
       const scopedLocalConvs = uid
-        ? allLocalConvs.filter(
+        ? (await db.getConversations()).filter(
             (c) =>
               !c.userId ||
               c.userId === uid ||
               (uEmail && c.userEmail?.toLowerCase() === uEmail.toLowerCase())
           )
-        : allLocalConvs;
+        : immediateConvs;
 
-      let mergedConvs = scopedLocalConvs;
       if (uid || uEmail) {
         const backendChats = await fetchUserChatsFromBackend(uid || '', uEmail);
         if (backendChats) {
@@ -272,7 +347,6 @@ export function OfflineGptWorkspace() {
           for (const m of backendChats.messages) {
             await db.saveMessage(m);
           }
-          // Push any local-only chats to backend with full user email & name attribution
           const backendIds = new Set(backendChats.conversations.map((c) => c.id));
           for (const localConv of scopedLocalConvs) {
             if (!backendIds.has(localConv.id)) {
@@ -291,30 +365,16 @@ export function OfflineGptWorkspace() {
               );
             }
           }
-          mergedConvs = Array.from(convMap.values()).sort(
+          const mergedConvs = Array.from(convMap.values()).sort(
             (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
           );
+          setConversations(mergedConvs);
+          if (mergedConvs.length > 0 && !activeConversationIdRef.current) {
+            setActiveConversationId(mergedConvs[0].id);
+            setMessages(await db.getMessages(mergedConvs[0].id));
+          }
         }
       }
-
-      setConversations(mergedConvs);
-      if (mergedConvs.length > 0) {
-        setActiveConversationId(mergedConvs[0].id);
-        const msgs = await db.getMessages(mergedConvs[0].id);
-        setMessages(msgs);
-      }
-
-      const docs = await db.getDocuments();
-      setDocuments(docs);
-
-      const nts = await db.getNotes();
-      setNotes(nts);
-
-      const flds = await db.getFolders();
-      setFolders(flds);
-
-      const status = await aiEngine.checkOllamaStatus();
-      setIsOllamaConnected(status.connected);
 
       if (syncedUser?.id) {
         const allLocalImgs = await db.getAllImageHistory();
@@ -371,8 +431,6 @@ export function OfflineGptWorkspace() {
             (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           );
           setImageHistory(mergedImgs);
-        } else {
-          setImageHistory(localImgs);
         }
       }
     }
@@ -420,7 +478,33 @@ export function OfflineGptWorkspace() {
         localImgs.push(claimed);
       }
 
-      const backendImgs = await fetchUserImagesFromBackend(uid, currentUser?.email);
+      setImageHistory(localImgs);
+
+      const uEmail = currentUser?.email;
+      const uOwnerName = currentUser
+        ? [currentUser.firstName, currentUser.lastName].filter(Boolean).join(' ').trim() || currentUser.email
+        : undefined;
+      const localConvs = (await db.getConversations()).filter(
+        (c) =>
+          !c.userId ||
+          c.userId === uid ||
+          (uEmail && c.userEmail?.toLowerCase() === uEmail.toLowerCase())
+      );
+      setConversations(localConvs);
+      if (localConvs.length > 0 && !activeConversationIdRef.current) {
+        setActiveConversationId(localConvs[0].id);
+        setMessages(await db.getMessages(localConvs[0].id));
+      }
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        return;
+      }
+
+      const [backendImgs, backendChats] = await Promise.all([
+        fetchUserImagesFromBackend(uid, currentUser?.email),
+        fetchUserChatsFromBackend(uid, uEmail),
+      ]);
+
       if (backendImgs) {
         const map = new Map<string, GeneratedImageRecord>();
         for (const r of localImgs) map.set(r.id, r);
@@ -449,21 +533,8 @@ export function OfflineGptWorkspace() {
             (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           )
         );
-      } else {
-        setImageHistory(localImgs);
       }
 
-      const uEmail = currentUser?.email;
-      const uOwnerName = currentUser
-        ? [currentUser.firstName, currentUser.lastName].filter(Boolean).join(' ').trim() || currentUser.email
-        : undefined;
-      const localConvs = (await db.getConversations()).filter(
-        (c) =>
-          !c.userId ||
-          c.userId === uid ||
-          (uEmail && c.userEmail?.toLowerCase() === uEmail.toLowerCase())
-      );
-      const backendChats = await fetchUserChatsFromBackend(uid, uEmail);
       if (backendChats) {
         const cMap = new Map<string, Conversation>();
         for (const c of localConvs) cMap.set(c.id, c);
@@ -503,8 +574,6 @@ export function OfflineGptWorkspace() {
           setActiveConversationId(null);
           setMessages([]);
         }
-      } else {
-        setConversations(localConvs);
       }
     });
   }, [currentUser?.id]);

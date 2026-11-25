@@ -145,25 +145,34 @@ export interface ValidatedReferenceImage {
 
 export async function fetchImageCapabilities(userId?: string): Promise<ImageCapabilities | null> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
   try {
     const res = await fetch('/api/image/capabilities', {
       headers: userId ? { 'x-user-id': userId } : undefined,
+      signal: controller.signal,
     });
     if (!res.ok) return null;
     return (await res.json()) as ImageCapabilities;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 export async function fetchLocalImageStatus(): Promise<LocalImageStatus | null> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3000);
   try {
-    const res = await fetch('/api/image/local-status');
+    const res = await fetch('/api/image/local-status', { signal: controller.signal });
     if (!res.ok) return null;
     return (await res.json()) as LocalImageStatus;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -401,7 +410,7 @@ export async function generateImageApi(
   }
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 65000);
+  const timeoutId = setTimeout(() => controller.abort(), 22000);
 
   try {
     const response = await fetch('/api/image/generate', {
