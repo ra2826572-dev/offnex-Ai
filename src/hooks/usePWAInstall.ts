@@ -121,7 +121,7 @@ export async function warmOfflineAppCache(
           ready: data?.ready !== false,
           controlled: Boolean(navigator.serviceWorker.controller),
           cachedCount: data?.cachedCount || urls.length,
-          cacheName: data?.cacheName || 'offnex-ai-shell-v8',
+          cacheName: data?.cacheName || 'offnex-ai-shell-v9',
         });
       };
       worker.postMessage(
@@ -162,7 +162,7 @@ export async function getOfflineCacheStatus(): Promise<OfflineCacheStatus | null
             ready: Boolean(data?.ready),
             controlled: Boolean(navigator.serviceWorker.controller),
             cachedCount: data?.cachedCount || 0,
-            cacheName: data?.cacheName || 'offnex-ai-shell-v8',
+            cacheName: data?.cacheName || 'offnex-ai-shell-v9',
           });
         };
         worker.postMessage({ type: 'PING_CACHE_STATUS' }, [channel.port2]);
@@ -176,10 +176,10 @@ export async function getOfflineCacheStatus(): Promise<OfflineCacheStatus | null
   try {
     if ('caches' in window) {
       const cacheNames = await caches.keys();
-      const targetName = cacheNames.find((n) => n.startsWith('offnex-ai-shell')) || 'offnex-ai-shell-v8';
+      const targetName = cacheNames.find((n) => n.startsWith('offnex-ai-shell')) || 'offnex-ai-shell-v9';
       const cache = await caches.open(targetName);
       const keys = await cache.keys();
-      const rootMatch = await cache.match('/', { ignoreSearch: true });
+      const rootMatch = await cache.match('/', { ignoreSearch: true, ignoreVary: true });
       return {
         ready: Boolean(rootMatch),
         controlled,

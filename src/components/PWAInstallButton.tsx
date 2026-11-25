@@ -6,11 +6,19 @@ import {
   Download,
   ExternalLink,
   Monitor,
+  RefreshCw,
   Share2,
   Smartphone,
+  WifiOff,
   X,
 } from 'lucide-react';
-import { DevicePlatform, usePWAInstall, warmOfflineAppCache } from '../hooks/usePWAInstall';
+import {
+  DevicePlatform,
+  OfflineCacheStatus,
+  getOfflineCacheStatus,
+  usePWAInstall,
+  warmOfflineAppCache,
+} from '../hooks/usePWAInstall';
 
 interface PWAInstallButtonProps {
   variant?: 'default' | 'compact';
@@ -26,6 +34,8 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   const [selectedPlatform, setSelectedPlatform] = useState<DevicePlatform>(platform);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [standaloneUrl, setStandaloneUrl] = useState('/?install=1');
+  const [cacheStatus, setCacheStatus] = useState<OfflineCacheStatus | null>(null);
+  const [isSyncingCache, setIsSyncingCache] = useState(false);
 
   useEffect(() => {
     setSelectedPlatform(platform);
@@ -34,8 +44,40 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
   useEffect(() => {
     if (typeof window !== 'undefined') {
       setStandaloneUrl(`${window.location.origin}/?install=1`);
+      getOfflineCacheStatus().then((st) => {
+        if (st) setCacheStatus(st);
+      });
     }
   }, []);
+
+  useEffect(() => {
+    if (!showGuide) return;
+    let active = true;
+    getOfflineCacheStatus().then((st) => {
+      if (active && st) setCacheStatus(st);
+    });
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      warmOfflineAppCache().then((st) => {
+        if (active && st) setCacheStatus(st);
+      });
+    }
+    return () => {
+      active = false;
+    };
+  }, [showGuide]);
+
+  const handleWarmCache = async () => {
+    if (isSyncingCache) return;
+    setIsSyncingCache(true);
+    const st = await warmOfflineAppCache([], true);
+    if (st) {
+      setCacheStatus(st);
+    } else {
+      const direct = await getOfflineCacheStatus();
+      if (direct) setCacheStatus(direct);
+    }
+    setIsSyncingCache(false);
+  };
 
   if (isInstalled) {
     return null;
@@ -43,6 +85,9 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
 
   const handlePrimaryClick = async () => {
     setFeedback(null);
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      void warmOfflineAppCache([], false);
+    }
     if (isInstallable) {
       const outcome = await install();
       if (outcome === 'accepted') {
@@ -55,6 +100,9 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
 
   const handleModalInstall = async () => {
     setFeedback(null);
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      void warmOfflineAppCache([], false);
+    }
     if (isInstallable && selectedPlatform !== 'ios') {
       const outcome = await install();
       if (outcome === 'accepted') {
@@ -112,7 +160,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                 <div className="min-w-0">
                   <h3 className="text-sm font-bold text-white">Install Offnex Ai</h3>
                   <p className="text-xs text-gray-400">
-                    Install karne ke baad bagair internet ke bhi chalegi
+                    Windows &amp; Mobile par install ke baad bina internet ke chalegi
                   </p>
                 </div>
               </div>
@@ -126,9 +174,36 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
               </button>
             </div>
 
-            {isEmbedded && (
+            {isEmbedded ? (
               <div className="mb-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200 leading-relaxed">
-                Aap abhi preview frame mein hain. Direct install aur offline cache save karne ke liye live browser tab mein kholein.
+                Aap abhi AI Studio preview frame ke andar hain. Offline install ke liye pehle neeche{' '}
+                <strong className="text-white">Open Standalone &amp; Install</strong> click karein taake Chrome offline files device par save kar sake.
+              </div>
+            ) : (
+              <div className="mb-3 p-3 rounded-xl bg-[#14182D] border border-[#242B4F] flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0 text-[11px]">
+                  <WifiOff
+                    className={`w-4 h-4 shrink-0 ${
+                      cacheStatus?.ready && cacheStatus?.controlled ? 'text-emerald-400' : 'text-amber-400'
+                    }`}
+                  />
+                  <span className="text-gray-200 truncate">
+                    {cacheStatus?.ready && cacheStatus?.controlled
+                      ? `Offline Ready (${cacheStatus.cachedCount} files saved)`
+                      : cacheStatus?.ready
+                      ? `${cacheStatus.cachedCount} files saved — ready after install`
+                      : 'Saving offline files...'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleWarmCache}
+                  disabled={isSyncingCache}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1D2342] hover:bg-[#272F57] text-[10px] font-semibold text-emerald-300 border border-emerald-500/30 cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isSyncingCache ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingCache ? 'Syncing' : 'Verify Offline'}</span>
+                </button>
               </div>
             )}
 
@@ -137,20 +212,20 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
                 [
                   {
                     id: 'desktop' as const,
-                    label: 'PC / Laptop (Windows / Mac)',
-                    desc: 'Chrome ya Edge ke address bar mein Install App icon par click karein.',
+                    label: 'Windows / PC (Chrome / Edge)',
+                    desc: 'Address bar ke right side par Install App icon ya menu (⋮) → Install Offnex Ai par click karein.',
                     icon: Monitor,
                   },
                   {
                     id: 'android' as const,
                     label: 'Android Mobile (Chrome)',
-                    desc: 'Chrome menu (⋮) → Install app / Add to Home screen.',
+                    desc: 'Chrome menu (⋮) → Install app / Add to Home screen → Install par tap karein.',
                     icon: Smartphone,
                   },
                   {
                     id: 'ios' as const,
                     label: 'iPhone / iPad (Safari)',
-                    desc: 'Safari Share (□↑) → Add to Home Screen.',
+                    desc: 'Safari Share (□↑) → Add to Home Screen par tap karein.',
                     icon: Share2,
                   },
                 ] as const

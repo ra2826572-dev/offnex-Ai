@@ -1,4 +1,4 @@
-const CACHE_NAME = 'offnex-ai-shell-v8';
+const CACHE_NAME = 'offnex-ai-shell-v9';
 const FALLBACK_URL = '/__offline_shell__';
 const CORE_PRECACHE_URLS = [
   '/',
@@ -44,14 +44,19 @@ function buildEmergencyFallbackResponse() {
   });
 }
 
-// Chrome rejects a Service Worker `navigate` response if `response.redirected === true`.
-// Always reconstruct a clean non-redirected Response before storing in CacheStorage or returning.
-async function toCleanCacheableResponse(response) {
+// Reconstruct clean non-redirected Response and strip Next.js `Vary` / `no-store` headers on cached HTML
+// so CacheStorage always matches `/` and `/admin` reliably across standalone & offline launches.
+async function toCleanCacheableResponse(response, stripVaryHeaders = false) {
   if (!response || !response.ok) return null;
-  if (!response.redirected) return response;
+  if (!response.redirected && !stripVaryHeaders) return response;
   try {
     const body = await response.clone().arrayBuffer();
     const headers = new Headers(response.headers);
+    if (stripVaryHeaders) {
+      headers.delete('vary');
+      headers.delete('cache-control');
+      headers.delete('pragma');
+    }
     return new Response(body, {
       status: response.status,
       statusText: response.statusText || 'OK',
@@ -145,7 +150,7 @@ async function fetchWithTimeout(request, timeoutMs) {
   }
 }
 
-async function cacheUrlsSafely(cache, urls, forceRefreshPages = false) {
+async function cacheUrlsSafely(cache, urls, forceRefreshPages = false, preferHttpCache = false) {
   const unique = Array.from(
     new Set(
       urls
@@ -169,7 +174,7 @@ async function cacheUrlsSafely(cache, urls, forceRefreshPages = false) {
     )
   );
 
-  const BATCH_SIZE = 6;
+  const BATCH_SIZE = 8;
   for (let i = 0; i < unique.length; i += BATCH_SIZE) {
     const batch = unique.slice(i, i + BATCH_SIZE);
     await Promise.allSettled(
@@ -177,20 +182,26 @@ async function cacheUrlsSafely(cache, urls, forceRefreshPages = false) {
         try {
           const parsed = new URL(targetUrl);
           const isPageRoute = parsed.pathname === '/' || parsed.pathname === '/admin';
-          const existing = await cache.match(targetUrl);
+          const existing = await cache.match(targetUrl, { ignoreVary: true });
           if (existing && (!isPageRoute || !forceRefreshPages)) return;
 
           const req = new Request(targetUrl, {
             credentials: 'same-origin',
-            cache: isPageRoute ? 'reload' : 'default',
+            cache: isPageRoute
+              ? forceRefreshPages
+                ? 'reload'
+                : 'default'
+              : preferHttpCache
+              ? 'force-cache'
+              : 'default',
           });
-          const res = await fetchWithTimeout(req, isPageRoute ? 9000 : 7000);
+          const res = await fetchWithTimeout(req, isPageRoute ? 8000 : 6000);
           if (!res || !res.ok) return;
 
           const ct = (res.headers.get('content-type') || '').toLowerCase();
           if (isPageRoute) {
             if (ct.includes('text/html')) {
-              const clean = await toCleanCacheableResponse(res);
+              const clean = await toCleanCacheableResponse(res, true);
               if (clean) {
                 const html = await clean.clone().text();
                 if (isValidAppHtml(html)) {
@@ -203,7 +214,7 @@ async function cacheUrlsSafely(cache, urls, forceRefreshPages = false) {
           }
 
           if (isValidCacheableAsset(parsed, res)) {
-            const clean = await toCleanCacheableResponse(res);
+            const clean = await toCleanCacheableResponse(res, false);
             if (clean) {
               await cache.put(targetUrl, clean);
             }
@@ -217,31 +228,49 @@ async function cacheUrlsSafely(cache, urls, forceRefreshPages = false) {
 }
 
 async function cacheFastInstallShell(cache) {
-  const essential = ['/', '/manifest.webmanifest', '/sw-register.js', '/pwa-192x192.png'];
-  await Promise.allSettled(
-    essential.map(async (route) => {
-      try {
-        const res = await fetchWithTimeout(new Request(route, { credentials: 'same-origin' }), 5000);
-        if (!res || !res.ok) return;
-        const clean = await toCleanCacheableResponse(res);
-        if (!clean) return;
-        const fullUrl = new URL(route, self.location.origin).href;
-        if (route === '/') {
-          const html = await clean.clone().text();
-          if (!isValidAppHtml(html)) return;
-          await cache.put('/', clean.clone());
-          await cache.put(fullUrl, clean.clone());
-          return;
+  const discoveredFromRoot = [];
+
+  try {
+    const rootRes = await fetchWithTimeout(
+      new Request('/', { credentials: 'same-origin', cache: 'default' }),
+      6000
+    );
+    if (
+      rootRes &&
+      rootRes.ok &&
+      (rootRes.headers.get('content-type') || '').toLowerCase().includes('text/html')
+    ) {
+      const cleanRoot = await toCleanCacheableResponse(rootRes, true);
+      if (cleanRoot) {
+        const html = await cleanRoot.clone().text();
+        if (isValidAppHtml(html)) {
+          await cache.put('/', cleanRoot.clone());
+          await cache.put(new URL('/', self.location.origin).href, cleanRoot.clone());
+          discoveredFromRoot.push(...extractAssetsFromHtml(html));
         }
-        const parsed = new URL(fullUrl);
-        if (isValidCacheableAsset(parsed, clean)) {
-          await cache.put(route, clean.clone());
-          await cache.put(fullUrl, clean.clone());
-        }
-      } catch {
-        // Ignore transient timeout during fast install
       }
-    })
+    }
+  } catch {
+    // Continue caching essential icons & manifest
+  }
+
+  // Cache manifest, icons, and every JS/CSS chunk discovered in `/` HTML right during install
+  // using preferHttpCache=true so chunks already downloaded by the tab save in <300ms.
+  await cacheUrlsSafely(
+    cache,
+    [
+      '/manifest.webmanifest',
+      '/sw-register.js',
+      '/icon.png',
+      '/pwa-192x192.png',
+      '/pwa-512x512.png',
+      '/pwa-maskable-512x512.png',
+      '/apple-touch-icon.png',
+      '/assets/offnex_icon_square.png',
+      ...discoveredFromRoot,
+    ],
+    false,
+    true
   );
 }
 
@@ -253,13 +282,13 @@ async function refreshFullShellCache(cache, extraUrls = [], includeSecondary = t
     routesToFetch.map(async (pageRoute) => {
       try {
         const req = new Request(pageRoute, { credentials: 'same-origin', cache: 'reload' });
-        const res = await fetchWithTimeout(req, 10000);
+        const res = await fetchWithTimeout(req, 9000);
         if (
           res &&
           res.ok &&
           (res.headers.get('content-type') || '').toLowerCase().includes('text/html')
         ) {
-          const clean = await toCleanCacheableResponse(res);
+          const clean = await toCleanCacheableResponse(res, true);
           if (clean) {
             const html = await clean.clone().text();
             if (isValidAppHtml(html)) {
@@ -284,7 +313,8 @@ async function refreshFullShellCache(cache, extraUrls = [], includeSecondary = t
       ...discoveredUrls,
       ...extraUrls,
     ],
-    false
+    false,
+    true
   );
 }
 
@@ -293,7 +323,6 @@ self.addEventListener('install', (event) => {
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       await cache.put(FALLBACK_URL, buildEmergencyFallbackResponse());
-      // Fast critical install (<1-5s) so Service Worker activates IMMEDIATELY and controls pages right away
       await cacheFastInstallShell(cache);
       await self.skipWaiting();
     })()
@@ -307,17 +336,20 @@ self.addEventListener('activate', (event) => {
       const keys = await caches.keys();
 
       // Migrate cached '/' from previous shell cache if current cache doesn't have it yet
-      const hasRoot = await cache.match('/', { ignoreSearch: true });
+      const hasRoot = await cache.match('/', { ignoreSearch: true, ignoreVary: true });
       if (!hasRoot) {
         for (const oldKey of keys) {
           if (oldKey === CACHE_NAME || !oldKey.startsWith('offnex-ai-shell')) continue;
           try {
             const oldCache = await caches.open(oldKey);
-            const oldRoot = await oldCache.match('/', { ignoreSearch: true });
+            const oldRoot = await oldCache.match('/', { ignoreSearch: true, ignoreVary: true });
             if (oldRoot) {
-              await cache.put('/', oldRoot.clone());
-              await cache.put(new URL('/', self.location.origin).href, oldRoot.clone());
-              break;
+              const cleanOld = await toCleanCacheableResponse(oldRoot, true);
+              if (cleanOld) {
+                await cache.put('/', cleanOld.clone());
+                await cache.put(new URL('/', self.location.origin).href, cleanOld.clone());
+                break;
+              }
             }
           } catch {
             // Ignore migration errors
@@ -333,7 +365,7 @@ self.addEventListener('activate', (event) => {
         client.postMessage({ type: 'SW_ACTIVATED', cacheName: CACHE_NAME });
       }
 
-      // Warm full shell chunks, /admin, and icons in background while SW is already active
+      // Warm remaining secondary routes (/admin) & assets in background while SW is already controlling pages
       await refreshFullShellCache(cache, [], true);
     })()
   );
@@ -357,7 +389,7 @@ self.addEventListener('message', (event) => {
         const cache = await caches.open(CACHE_NAME);
         await refreshFullShellCache(cache, Array.isArray(data.urls) ? data.urls : [], true);
         const allKeys = await cache.keys();
-        const rootMatch = await cache.match('/', { ignoreSearch: true });
+        const rootMatch = await cache.match('/', { ignoreSearch: true, ignoreVary: true });
         if (event.ports && event.ports[0]) {
           event.ports[0].postMessage({
             type: 'OFFLINE_CACHE_READY',
@@ -375,14 +407,14 @@ self.addEventListener('message', (event) => {
     event.waitUntil(
       (async () => {
         const cache = await caches.open(CACHE_NAME);
-        const hasRoot = await cache.match('/', { ignoreSearch: true });
+        const hasRoot = await cache.match('/', { ignoreSearch: true, ignoreVary: true });
         if (!hasRoot) {
           await refreshFullShellCache(cache, data.urls, true);
         } else {
-          await cacheUrlsSafely(cache, data.urls, false);
+          await cacheUrlsSafely(cache, data.urls, false, true);
         }
         const allKeys = await cache.keys();
-        const rootMatch = await cache.match('/', { ignoreSearch: true });
+        const rootMatch = await cache.match('/', { ignoreSearch: true, ignoreVary: true });
         if (event.ports && event.ports[0]) {
           event.ports[0].postMessage({
             type: 'OFFLINE_CACHE_READY',
@@ -401,7 +433,7 @@ self.addEventListener('message', (event) => {
       (async () => {
         const cache = await caches.open(CACHE_NAME);
         const allKeys = await cache.keys();
-        const rootMatch = await cache.match('/', { ignoreSearch: true });
+        const rootMatch = await cache.match('/', { ignoreSearch: true, ignoreVary: true });
         if (event.ports && event.ports[0]) {
           event.ports[0].postMessage({
             type: 'CACHE_STATUS',
@@ -443,14 +475,14 @@ self.addEventListener('fetch', (event) => {
         const cache = await caches.open(CACHE_NAME);
         const findCachedNavigation = async () => {
           const match =
-            (await cache.match(request)) ||
-            (await cache.match(request, { ignoreSearch: true })) ||
-            (await cache.match(url.pathname)) ||
-            (await cache.match('/', { ignoreSearch: true })) ||
-            (await cache.match('/')) ||
-            (await cache.match(FALLBACK_URL));
+            (await cache.match(request, { ignoreVary: true })) ||
+            (await cache.match(request, { ignoreSearch: true, ignoreVary: true })) ||
+            (await cache.match(url.pathname, { ignoreVary: true })) ||
+            (await cache.match('/', { ignoreSearch: true, ignoreVary: true })) ||
+            (await cache.match('/', { ignoreVary: true })) ||
+            (await cache.match(FALLBACK_URL, { ignoreVary: true }));
           if (match) {
-            return (await toCleanCacheableResponse(match)) || match;
+            return (await toCleanCacheableResponse(match, true)) || match;
           }
           return null;
         };
@@ -467,17 +499,18 @@ self.addEventListener('fetch', (event) => {
           if (networkResponse && networkResponse.ok) {
             const ct = (networkResponse.headers.get('content-type') || '').toLowerCase();
             if (ct.includes('text/html')) {
-              const clean = await toCleanCacheableResponse(networkResponse);
+              const clean = await toCleanCacheableResponse(networkResponse, true);
               if (clean) {
                 const html = await clean.clone().text();
                 if (isValidAppHtml(html)) {
                   await cache.put(request, clean.clone()).catch(() => undefined);
                   if (url.pathname === '/' || url.pathname === '/admin') {
                     await cache.put(url.pathname, clean.clone()).catch(() => undefined);
+                    await cache.put(new URL(url.pathname, self.location.origin).href, clean.clone()).catch(() => undefined);
                   }
                   const discovered = extractAssetsFromHtml(html);
                   if (discovered.length > 0) {
-                    event.waitUntil(cacheUrlsSafely(cache, discovered, false));
+                    event.waitUntil(cacheUrlsSafely(cache, discovered, false, true));
                   }
                   return clean;
                 }
@@ -501,16 +534,20 @@ self.addEventListener('fetch', (event) => {
       (async () => {
         const cache = await caches.open(CACHE_NAME);
         if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-          return (await cache.match(request)) || Response.error();
+          return (await cache.match(request, { ignoreVary: true })) || Response.error();
         }
         try {
           const res = await fetchWithTimeout(request, 2000);
           if (res && res.ok) {
-            await cache.put(request, res.clone()).catch(() => undefined);
+            const clean = await toCleanCacheableResponse(res, true);
+            if (clean) {
+              await cache.put(request, clean.clone()).catch(() => undefined);
+              return clean;
+            }
           }
           return res;
         } catch {
-          return (await cache.match(request)) || Response.error();
+          return (await cache.match(request, { ignoreVary: true })) || Response.error();
         }
       })()
     );
@@ -528,14 +565,13 @@ self.addEventListener('fetch', (event) => {
   if (!isStaticAsset) return;
 
   // 2. Static Assets — Instant Cache-First + Background Revalidate across all hosts
-  // (OfflineBootstrap refreshes shell cleanly when live appVersion changes)
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       const cached =
-        (await cache.match(request)) ||
-        (await cache.match(request, { ignoreSearch: true })) ||
-        (await cache.match(url.pathname));
+        (await cache.match(request, { ignoreVary: true })) ||
+        (await cache.match(request, { ignoreSearch: true, ignoreVary: true })) ||
+        (await cache.match(url.pathname, { ignoreVary: true }));
 
       if (typeof navigator !== 'undefined' && navigator.onLine === false) {
         return cached || Response.error();
@@ -544,7 +580,7 @@ self.addEventListener('fetch', (event) => {
       const networkPromise = fetchWithTimeout(request, 6000)
         .then(async (response) => {
           if (isValidCacheableAsset(url, response)) {
-            const clean = await toCleanCacheableResponse(response);
+            const clean = await toCleanCacheableResponse(response, true);
             if (clean) {
               await cache.put(request, clean.clone()).catch(() => undefined);
               return clean;

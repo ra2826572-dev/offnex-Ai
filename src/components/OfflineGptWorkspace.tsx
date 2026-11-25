@@ -1257,7 +1257,7 @@ export function OfflineGptWorkspace() {
         userId: uid,
         userEmail: currentUser?.email,
         userName: ownerName,
-        offlineStrict: settings.offlineStrict,
+        offlineStrict: settings.offlineStrict || !isNetworkOnline,
       });
 
       if (addToChat && convId) {
@@ -1327,8 +1327,8 @@ export function OfflineGptWorkspace() {
         createdAt: new Date().toISOString(),
       };
       await db.saveImageRecord(historyRecord);
-      await syncImageRecordToBackend(historyRecord);
       setImageHistory((prev) => [historyRecord, ...prev]);
+      void syncImageRecordToBackend(historyRecord);
       recordDailyImageUsage(uid, result.images.length);
       setDailyUsageTick((t) => t + 1);
     } catch (err: unknown) {
@@ -1548,8 +1548,8 @@ export function OfflineGptWorkspace() {
         createdAt: new Date().toISOString(),
       };
       await db.saveImageRecord(videoRecord);
-      await syncImageRecordToBackend(videoRecord);
       setImageHistory((prev) => [videoRecord, ...prev]);
+      void syncImageRecordToBackend(videoRecord);
     } catch (err: unknown) {
       const errMsg = (err as Error)?.message || 'Video generation failed.';
       setLastImageError(errMsg);
